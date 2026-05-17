@@ -55,7 +55,7 @@ Built with **Next.js 16**, **Prisma**, **PostgreSQL**, and **Upstash Redis**.
 - **Escalation** — overdue check-ins are automatically escalated to managers
 
 ### System Automation
-- **Scheduler daemon** — hourly background job that:
+- **Vercel Cron Job** — serverless hourly background execution (via `/api/admin/scheduler`) that:
   - Opens/closes cycle windows based on dates
   - Sends automatic reminders for pending submissions
   - Escalates overdue check-ins
@@ -112,7 +112,7 @@ Built with **Next.js 16**, **Prisma**, **PostgreSQL**, and **Upstash Redis**.
 | **ORM** | Prisma 7 with PgBouncer adapter |
 | **Database** | PostgreSQL (Supabase) |
 | **Cache / Rate Limit** | Upstash Redis (serverless) |
-| **Scheduling** | node-cron (standalone daemon),vercel cron jobs |
+| **Scheduling** | Vercel Cron Jobs (serverless hourly trigger) |
 | **Icons** | Lucide React |
 | **Notifications** | Sonner toast + in-app notification system |
 
@@ -206,8 +206,9 @@ atomquest/
 │   ├── schema.prisma          # Database schema (10 models)
 │   ├── migrations/            # SQL migration history
 │   └── seed.ts                # Demo data seeder
+├── vercel.json                # Vercel Serverless Cron configuration
 ├── scripts/
-│   └── scheduler.ts           # Background cron daemon
+│   └── scheduler.ts           # Standalone cron daemon (fallback)
 ├── src/
 │   ├── app/
 │   │   ├── api/               # API route handlers
