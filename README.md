@@ -158,7 +158,7 @@ npm install
    | Role | Email | Password |
    |------|-------|----------|
    | Admin | `admin@atomquest.com` | `AdmQuest$2026!` |
-   | Manager | `manager@atomquest.com` | `MgrQuest#2026!` |
+   | Manager | `manager@atomquest.com` | `MgrQuest#2026!1` |
    | Employee | `employee@atomquest.com` | `EmpQuest@2026!` |
 
    > **Note:** Demo passwords now fully comply with the system's password complexity requirements (minimum 8 characters, mixed case, digit, and special character).

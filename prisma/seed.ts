@@ -13,7 +13,7 @@ async function main() {
   console.log("Starting seeding...");
 
   const adminPassword = await bcrypt.hash("AdmQuest$2026!", 10);
-  const managerPassword = await bcrypt.hash("MgrQuest#2026!", 10);
+  const managerPassword = await bcrypt.hash("MgrQuest#2026!1", 10);
   const employeePassword = await bcrypt.hash("EmpQuest@2026!", 10);
 
   // Create Admin
