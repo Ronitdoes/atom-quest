@@ -6,9 +6,11 @@ import { CheckInModule } from "@/components/goals/check-in-module";
 import { GoalFormData } from "@/lib/validators/goal";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { Loader2, Target, ClipboardCheck } from "lucide-react";
+import { Loader2, Target, ClipboardCheck, ArrowLeft } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Header } from "@/components/shared/header";
+import { Button } from "@/components/ui/button";
+import Loading from "@/app/loading";
 
 export default function EmployeeGoalsPage() {
   const [goals, setGoals] = useState<GoalFormData[]>([]);
@@ -18,7 +20,7 @@ export default function EmployeeGoalsPage() {
   const router = useRouter();
 
   // For MVP, we use a fixed cycle ID
-  const cycleId = "2024";
+  const cycleId = "2026";
 
   useEffect(() => {
     const fetchGoals = async () => {
@@ -89,11 +91,7 @@ export default function EmployeeGoalsPage() {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-neutral-400" />
-      </div>
-    );
+    return <Loading />;
   }
 
   // Determine initial tab based on Goal Sheet Approval status
@@ -119,6 +117,16 @@ export default function EmployeeGoalsPage() {
                 Quarterly Check-Ins
               </TabsTrigger>
             </TabsList>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push("/employee")}
+              className="gap-2 bg-transparent border-neutral-200 dark:border-zinc-800 text-neutral-900 dark:text-zinc-200 hover:bg-neutral-100 dark:hover:bg-zinc-900 shadow-sm transition-all"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to Dashboard
+            </Button>
           </div>
 
           <TabsContent value="goal-setting" className="mt-0">

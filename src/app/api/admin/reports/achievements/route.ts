@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
 import { AdminService } from "@/lib/services/admin-service";
+import { safeErrorResponse } from "@/lib/security/api";
+import { assertRateLimit } from "@/lib/security/rate-limit";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -11,8 +13,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    await assertRateLimit(`admin:reports:${session.user.id}`, 30, 60);
     const { searchParams } = new URL(req.url);
-    const cycleId = searchParams.get("cycleId") || "2024";
+    const cycleId = searchParams.get("cycleId") || "2026";
     const quarterParam = searchParams.get("quarter") || "1";
     const quarter = parseInt(quarterParam, 10);
 
@@ -22,8 +25,8 @@ export async function GET(req: NextRequest) {
 
     const report = await AdminService.getAchievementReport(cycleId, quarter);
     return NextResponse.json(report);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error generating achievement report:", error);
-    return NextResponse.json({ message: error.message || "Internal server error" }, { status: 500 });
+    return safeErrorResponse(error);
   }
 }

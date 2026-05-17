@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
 import { AdminService } from "@/lib/services/admin-service";
+import { safeErrorResponse } from "@/lib/security/api";
+import { assertRateLimit } from "@/lib/security/rate-limit";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -11,6 +13,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    await assertRateLimit(`admin:reminders:${session.user.id}`, 10, 60);
     const { type, cycleId, quarter, preview } = await req.json();
 
     if (!type || !cycleId) {
@@ -31,8 +34,8 @@ export async function POST(req: NextRequest) {
     );
 
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error broadcasting reminders by admin:", error);
-    return NextResponse.json({ message: error.message || "Internal server error" }, { status: 500 });
+    return safeErrorResponse(error);
   }
 }

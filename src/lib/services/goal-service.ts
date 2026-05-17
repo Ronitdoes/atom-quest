@@ -1,8 +1,9 @@
 import { db } from "@/lib/db/db";
-import { goalSheetSchema, GoalFormData } from "@/lib/validators/goal";
+import { draftGoalSheetSchema, goalSheetSchema, GoalFormData } from "@/lib/validators/goal";
 import { GoalStatus } from "@prisma/client";
 import { NotificationService } from "./notification-service";
 import { CacheService } from "./cache-service";
+import { BadRequestError, ForbiddenError } from "@/lib/security/api";
 
 export class GoalService {
   /**
@@ -27,8 +28,10 @@ export class GoalService {
     });
 
     if (existingSheet && existingSheet.status === GoalStatus.APPROVED) {
-      throw new Error("Cannot modify an approved goal sheet.");
+      throw new BadRequestError("Cannot modify an approved goal sheet.");
     }
+
+    await this.assertAssignedSharedGoals(userId, validated.goals.map((goal) => goal.sharedGoalId));
 
     // 3. Database transaction
     const sheet = await db.$transaction(async (tx) => {
@@ -79,7 +82,7 @@ export class GoalService {
       return sheet;
     });
 
-    await CacheService.clearAll();
+    await CacheService.invalidateAnalytics(cycleId);
 
     // 4. Notify manager (outside transaction is fine for MVP)
     try {
@@ -104,8 +107,7 @@ export class GoalService {
    * Saves a goal sheet as a draft
    */
   static async saveGoalSheet(userId: string, cycleId: string, goals: GoalFormData[]) {
-    // 1. Partial validation (individual goals must be valid, but total doesn't have to be 100% for draft)
-    // Actually, we should still enforce basic types
+    const validated = draftGoalSheetSchema.parse({ goals });
     
     const existingSheet = await db.goalSheet.findUnique({
       where: {
@@ -114,8 +116,10 @@ export class GoalService {
     });
 
     if (existingSheet && existingSheet.status === GoalStatus.APPROVED) {
-      throw new Error("Cannot modify an approved goal sheet.");
+      throw new BadRequestError("Cannot modify an approved goal sheet.");
     }
+
+    await this.assertAssignedSharedGoals(userId, validated.goals.map((goal) => goal.sharedGoalId));
 
     // 2. Database transaction
     const res = await db.$transaction(async (tx) => {
@@ -138,7 +142,7 @@ export class GoalService {
       });
 
       await tx.goal.createMany({
-        data: goals.map((goal) => ({
+        data: validated.goals.map((goal) => ({
           goalSheetId: sheet.id,
           thrustArea: goal.thrustArea,
           title: goal.title,
@@ -152,7 +156,7 @@ export class GoalService {
 
       return sheet;
     });
-    await CacheService.clearAll();
+    await CacheService.invalidateAnalytics(cycleId);
     return res;
   }
 
@@ -161,6 +165,22 @@ export class GoalService {
    */
   static validateGoals(goals: GoalFormData[]) {
     return goalSheetSchema.safeParse({ goals });
+  }
+
+  private static async assertAssignedSharedGoals(userId: string, sharedGoalIds: Array<string | undefined>) {
+    const ids = [...new Set(sharedGoalIds.filter((id): id is string => !!id))];
+    if (ids.length === 0) return;
+
+    const assignmentCount = await db.sharedGoalAssignment.count({
+      where: {
+        userId,
+        sharedGoalId: { in: ids },
+      },
+    });
+
+    if (assignmentCount !== ids.length) {
+      throw new ForbiddenError("One or more shared goals are not assigned to this user.");
+    }
   }
 
   /**

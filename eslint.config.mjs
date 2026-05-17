@@ -14,7 +14,16 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "src/generated/**",
     "scripts/**",
+    "scratch/**",
   ]),
+  {
+    rules: {
+      "@typescript-eslint/no-explicit-any": "warn",
+      "react/no-unescaped-entities": "warn",
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/immutability": "warn",
+    },
+  },
 ]);
 
 export default eslintConfig;

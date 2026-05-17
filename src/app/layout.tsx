@@ -12,6 +12,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Goal Tracking Portal",
   description: "Enterprise Goal Setting & Tracking System",
+  icons: {
+    icon: "/favicon.png",
+  },
 };
 
 import { Toaster } from "@/components/ui/sonner";

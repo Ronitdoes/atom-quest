@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
 import { AdminService } from "@/lib/services/admin-service";
+import { safeErrorResponse } from "@/lib/security/api";
+import { assertRateLimit } from "@/lib/security/rate-limit";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -11,6 +13,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    await assertRateLimit(`admin:auditlogs:${session.user.id}`, 30, 60);
     const { searchParams } = new URL(req.url);
     const pageParam = searchParams.get("page");
     const limitParam = searchParams.get("limit");
@@ -23,8 +26,8 @@ export async function GET(req: NextRequest) {
 
     const logs = await AdminService.getAuditLogs(validatedLimit, validatedPage);
     return NextResponse.json(logs);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error fetching audit logs for admin:", error);
-    return NextResponse.json({ message: error.message || "Internal server error" }, { status: 500 });
+    return safeErrorResponse(error);
   }
 }

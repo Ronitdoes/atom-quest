@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
 import { SharedGoalService } from "@/lib/services/shared-goal-service";
 import { sharedGoalSchema } from "@/lib/validators/shared-goal";
+import { safeErrorResponse } from "@/lib/security/api";
+import { assertRateLimit } from "@/lib/security/rate-limit";
 
 export async function POST(req: Request) {
   try {
@@ -11,6 +13,7 @@ export async function POST(req: Request) {
     if (!session || (session.user.role !== "MANAGER" && session.user.role !== "ADMIN")) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
+    await assertRateLimit(`shared-goals:create:${session.user.id}`, 20, 60);
 
     const body = await req.json();
     const validatedData = sharedGoalSchema.parse(body);
@@ -20,7 +23,7 @@ export async function POST(req: Request) {
     return NextResponse.json(result);
   } catch (error) {
     console.error("[SHARED_GOALS_POST]", error);
-    return new NextResponse("Internal Error", { status: 500 });
+    return safeErrorResponse(error, "Internal Error");
   }
 }
 
@@ -31,14 +34,20 @@ export async function GET(req: Request) {
     if (!session || (session.user.role !== "MANAGER" && session.user.role !== "ADMIN")) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
+    await assertRateLimit(`shared:get:${session.user.id}`, 60, 60);
 
-    const result = await SharedGoalService.getCreatedSharedGoals(session.user.id);
-    return NextResponse.json(result);
-  } catch (error: any) {
-    console.error("[SHARED_GOALS_GET]", error);
-    return new NextResponse(JSON.stringify({ error: error.message }), { 
-      status: 500,
-      headers: { "Content-Type": "application/json" }
+    const { searchParams } = new URL(req.url);
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)));
+
+    const result = await SharedGoalService.getCreatedSharedGoals(session.user.id, page, limit);
+    return NextResponse.json(result, {
+      headers: {
+        "Cache-Control": "private, max-age=15, stale-while-revalidate=45",
+      },
     });
+  } catch (error) {
+    console.error("[SHARED_GOALS_GET]", error);
+    return safeErrorResponse(error, "Internal Error");
   }
 }

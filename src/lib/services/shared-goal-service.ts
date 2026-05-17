@@ -1,6 +1,8 @@
 import { db } from "@/lib/db/db";
 import { SharedGoalFormData, SharedGoalAchievementData } from "@/lib/validators/shared-goal";
 import { CacheService } from "./cache-service";
+import { Role } from "@prisma/client";
+import { ForbiddenError, NotFoundError } from "@/lib/security/api";
 
 export class SharedGoalService {
   /**
@@ -13,14 +15,17 @@ export class SharedGoalService {
         creatorId,
       },
     });
-    await CacheService.clearAll();
+    await CacheService.invalidateAnalytics("2026");
     return res;
   }
 
   /**
    * Assigns a shared goal to multiple users
    */
-  static async assignSharedGoal(sharedGoalId: string, userIds: string[], managerId: string) {
+  static async assignSharedGoal(sharedGoalId: string, userIds: string[], actorId: string, actorRole: Role) {
+    await this.assertCanManageSharedGoal(sharedGoalId, actorId, actorRole);
+    await this.assertAssignableUsers(userIds, actorId, actorRole);
+
     const result = await db.$transaction(async (tx) => {
       const assignments = await Promise.all(
         userIds.map((userId) =>
@@ -40,7 +45,7 @@ export class SharedGoalService {
       // Log the assignment
       await tx.auditLog.create({
         data: {
-          userId: managerId,
+          userId: actorId,
           action: "SHARED_GOAL_ASSIGN",
           entityType: "SharedGoal",
           entityId: sharedGoalId,
@@ -50,22 +55,40 @@ export class SharedGoalService {
 
       return assignments;
     });
-    await CacheService.clearAll();
+    await CacheService.invalidateAnalytics("2026");
     return result;
   }
 
   /**
-   * Fetches all shared goals created by a user
+   * Fetches shared goals created by a user with pagination
    */
-  static async getCreatedSharedGoals(creatorId: string) {
-    return await db.sharedGoal.findMany({
-      where: { creatorId },
-      include: {
-        _count: {
-          select: { assignments: true },
+  static async getCreatedSharedGoals(creatorId: string, page: number = 1, limit: number = 50) {
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await Promise.all([
+      db.sharedGoal.findMany({
+        where: { creatorId },
+        include: {
+          _count: {
+            select: { assignments: true },
+          },
         },
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      db.sharedGoal.count({ where: { creatorId } }),
+    ]);
+
+    return {
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        hasMore: skip + data.length < total,
       },
-    });
+    };
   }
 
   /**
@@ -83,12 +106,26 @@ export class SharedGoalService {
   /**
    * Syncs a shared goal's details to all linked goals in employee goal sheets.
    */
-  static async syncSharedGoalMetadata(sharedGoalId: string) {
+  static async updateSharedGoal(sharedGoalId: string, actorId: string, actorRole: Role, data: SharedGoalFormData) {
+    await this.assertCanManageSharedGoal(sharedGoalId, actorId, actorRole);
+
+    const updatedSharedGoal = await db.sharedGoal.update({
+      where: { id: sharedGoalId },
+      data,
+    });
+
+    await this.syncSharedGoalMetadata(sharedGoalId, actorId, actorRole);
+    return updatedSharedGoal;
+  }
+
+  static async syncSharedGoalMetadata(sharedGoalId: string, actorId: string, actorRole: Role) {
+    await this.assertCanManageSharedGoal(sharedGoalId, actorId, actorRole);
+
     const sharedGoal = await db.sharedGoal.findUnique({
       where: { id: sharedGoalId },
     });
 
-    if (!sharedGoal) throw new Error("Shared goal not found");
+    if (!sharedGoal) throw new NotFoundError("Shared goal not found");
 
     const res = await db.goal.updateMany({
       where: { sharedGoalId },
@@ -100,7 +137,17 @@ export class SharedGoalService {
         target: sharedGoal.target,
       },
     });
-    await CacheService.clearAll();
+
+    const firstLinkedGoal = await db.goal.findFirst({
+      where: { sharedGoalId },
+      select: {
+        goalSheet: {
+          select: { cycleId: true }
+        }
+      }
+    });
+    const cycleId = firstLinkedGoal?.goalSheet?.cycleId || "2026";
+    await CacheService.invalidateAnalytics(cycleId);
     return res;
   }
 
@@ -108,7 +155,9 @@ export class SharedGoalService {
    * Updates achievement for a shared goal and syncs it to all linked employee goals.
    * This implements Step 23.
    */
-  static async updateAchievement(sharedGoalId: string, managerId: string, data: SharedGoalAchievementData) {
+  static async updateAchievement(sharedGoalId: string, actorId: string, actorRole: Role, data: SharedGoalAchievementData) {
+    await this.assertCanManageSharedGoal(sharedGoalId, actorId, actorRole);
+
     const result = await db.$transaction(async (tx) => {
       // 1. Verify shared goal existence
       const sharedGoal = await tx.sharedGoal.findUnique({
@@ -116,7 +165,7 @@ export class SharedGoalService {
         include: { linkedGoals: true }
       });
 
-      if (!sharedGoal) throw new Error("Shared goal not found");
+      if (!sharedGoal) throw new NotFoundError("Shared goal not found");
 
       // 2. For each linked goal, upsert the achievement for the given quarter
       const syncResults = await Promise.all(
@@ -147,7 +196,7 @@ export class SharedGoalService {
       // 3. Log the sync action
       await tx.auditLog.create({
         data: {
-          userId: managerId,
+          userId: actorId,
           action: "SHARED_GOAL_ACHIEVEMENT_SYNC",
           entityType: "SharedGoal",
           entityId: sharedGoalId,
@@ -157,7 +206,48 @@ export class SharedGoalService {
 
       return syncResults;
     });
-    await CacheService.clearAll();
+
+    const firstLinkedGoal = await db.goal.findFirst({
+      where: { sharedGoalId },
+      select: {
+        goalSheet: {
+          select: { cycleId: true }
+        }
+      }
+    });
+    const cycleId = firstLinkedGoal?.goalSheet?.cycleId || "2026";
+    await CacheService.invalidateAnalytics(cycleId, data.quarter);
     return result;
+  }
+
+  private static async assertCanManageSharedGoal(sharedGoalId: string, actorId: string, actorRole: Role) {
+    const sharedGoal = await db.sharedGoal.findUnique({
+      where: { id: sharedGoalId },
+      select: { creatorId: true },
+    });
+
+    if (!sharedGoal) {
+      throw new NotFoundError("Shared goal not found");
+    }
+
+    if (actorRole !== Role.ADMIN && sharedGoal.creatorId !== actorId) {
+      throw new ForbiddenError("You are not authorized to manage this shared goal.");
+    }
+  }
+
+  private static async assertAssignableUsers(userIds: string[], actorId: string, actorRole: Role) {
+    if (actorRole === Role.ADMIN) return;
+
+    const uniqueUserIds = [...new Set(userIds)];
+    const subordinateCount = await db.user.count({
+      where: {
+        id: { in: uniqueUserIds },
+        managerId: actorId,
+      },
+    });
+
+    if (subordinateCount !== uniqueUserIds.length) {
+      throw new ForbiddenError("Shared goals can only be assigned to your direct reports.");
+    }
   }
 }

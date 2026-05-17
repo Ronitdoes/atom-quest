@@ -24,7 +24,7 @@ export default async function CheckInReviewPage({
   const resolvedParams = await searchParams;
   const userId = resolvedParams.userId;
   const quarterStr = resolvedParams.quarter;
-  const cycleId = resolvedParams.cycleId || "2024";
+  const cycleId = resolvedParams.cycleId || "2026";
 
   if (!userId || !quarterStr) {
     redirect("/manager");

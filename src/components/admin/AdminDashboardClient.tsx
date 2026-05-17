@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, Fragment } from "react";
+import { useRouter } from "next/navigation";
 import { 
   ShieldCheck, 
   Activity, 
@@ -16,9 +17,12 @@ import {
   Search, 
   RefreshCw, 
   UserCheck, 
+  User,
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   FileText,
   Clock,
   Bell,
@@ -27,6 +31,7 @@ import {
   Grid
 } from "lucide-react";
 import { toast } from "sonner";
+import { useSession } from "next-auth/react";
 import {
   AreaChart,
   Area,
@@ -54,6 +59,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { formatDistanceToNow } from "date-fns";
+import { AdminNavbar } from "@/components/admin/AdminNavbar";
 
 interface AdminDashboardClientProps {
   adminName: string | null;
@@ -63,7 +69,7 @@ interface AdminDashboardClientProps {
 export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardClientProps) {
   // Navigation & Filtering State
   const [activeTab, setActiveTab] = useState("overview");
-  const [selectedCycle, setSelectedCycle] = useState("2024");
+  const [selectedCycle, setSelectedCycle] = useState("2026");
   
   // Data State
   const [stats, setStats] = useState<any>(null);
@@ -90,11 +96,44 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
   const [roleFilter, setRoleFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
 
+  // User Pagination State
+  const [userPage, setUserPage] = useState(1);
+  const [userTotalPages, setUserTotalPages] = useState(1);
+  const [userPageSize, setUserPageSize] = useState(10);
+  const [userTotalCount, setUserTotalCount] = useState(0);
+
+  const handleUserSearchChange = (val: string) => {
+    setUserSearch(val);
+    setUserPage(1);
+  };
+
+  const handleRoleFilterChange = (val: string) => {
+    setRoleFilter(val);
+    setUserPage(1);
+  };
+
   // User Edit Modal State
   const [editUser, setEditUser] = useState<any>(null);
   const [editRole, setEditRole] = useState<string>("EMPLOYEE");
   const [editManagerId, setEditManagerId] = useState<string>("none");
   const [savingUser, setSavingUser] = useState(false);
+
+  const router = useRouter();
+  const { update } = useSession();
+
+  // Profile Update State
+  const [profileName, setProfileName] = useState(adminName || "");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+
+  // Sync name when prop changes
+  useEffect(() => {
+    if (adminName) {
+      setProfileName(adminName);
+    }
+  }, [adminName]);
 
   // Analytics State
   const [selectedAnalyticsQuarter, setSelectedAnalyticsQuarter] = useState("1");
@@ -126,6 +165,59 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
   useEffect(() => {
     fetchAnalytics();
   }, [selectedCycle, selectedAnalyticsQuarter]);
+
+  const handleProfileUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const hasPasswordInput = !!(currentPassword || newPassword || confirmPassword);
+    if (hasPasswordInput) {
+      if (!currentPassword || !newPassword || !confirmPassword) {
+        toast.error("Please fill in all password fields to update your password.");
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        toast.error("New passwords do not match.");
+        return;
+      }
+    }
+
+    if (!profileName.trim()) {
+      toast.error("Name cannot be empty.");
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      const payload: any = { name: profileName };
+      if (hasPasswordInput) {
+        payload.currentPassword = currentPassword;
+        payload.newPassword = newPassword;
+        payload.confirmPassword = confirmPassword;
+      }
+
+      const res = await fetch("/api/user/update-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || "Profile updated successfully!");
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+        await update();
+        router.refresh();
+      } else {
+        toast.error(data.message || "Failed to update profile.");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("An error occurred while updating your profile.");
+    } finally {
+      setChangingPassword(false);
+    }
+  };
 
   // Unlock Modal State
   const [unlockSheet, setUnlockSheet] = useState<any>(null);
@@ -238,14 +330,22 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
   const fetchUsers = async () => {
     try {
       setLoadingUsers(true);
-      const res = await fetch("/api/admin/users");
+      const searchParams = new URLSearchParams({
+        page: userPage.toString(),
+        limit: userPageSize.toString(),
+        search: userSearch,
+        role: roleFilter,
+      });
+      const res = await fetch(`/api/admin/users?${searchParams.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        setUsers(data);
+        setUsers(data.users);
+        setUserTotalPages(data.pagination.totalPages);
+        setUserTotalCount(data.pagination.totalCount);
         
         // Extract all goal sheets across all users for the current cycle
         const sheets: any[] = [];
-        data.forEach((user: any) => {
+        data.users.forEach((user: any) => {
           user.goalSheets.forEach((sheet: any) => {
             if (sheet.cycleId === selectedCycle) {
               sheets.push({
@@ -387,10 +487,14 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
   // Run on mount and cycle change
   useEffect(() => {
     fetchStats();
-    fetchUsers();
     fetchManagers();
     fetchAuditLogs();
   }, [selectedCycle]);
+
+  // Run when user pagination parameters, search, or role filters change
+  useEffect(() => {
+    fetchUsers();
+  }, [userPage, userPageSize, userSearch, roleFilter, selectedCycle]);
 
   // Run report query when report filters change
   useEffect(() => {
@@ -479,13 +583,7 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
   };
 
   // Filtered Lists
-  const filteredUsers = users.filter((u) => {
-    const matchesSearch = 
-      (u.name || "").toLowerCase().includes(userSearch.toLowerCase()) ||
-      u.email.toLowerCase().includes(userSearch.toLowerCase());
-    const matchesRole = roleFilter === "ALL" || u.role === roleFilter;
-    return matchesSearch && matchesRole;
-  });
+  const filteredUsers = users;
 
   const filteredSheets = goalSheets.filter((s) => {
     const matchesSearch = 
@@ -502,10 +600,99 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
       row.title.toLowerCase().includes(reportSearch.toLowerCase()) ||
       row.thrustArea.toLowerCase().includes(reportSearch.toLowerCase());
     return matchesSearch;
-  });
+  });  const isInitialLoading = loadingStats || loadingUsers || loadingLogs;
+
+  if (isInitialLoading) {
+    return (
+      <div className="flex flex-col min-h-screen bg-[#09090b]">
+        <AdminNavbar activeTab={activeTab} onTabChange={setActiveTab} />
+        <main className="flex-1 p-6 space-y-8 max-w-7xl mx-auto w-full">
+          <div className="space-y-8">
+            {/* Top Banner Skeleton */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="space-y-2">
+                <div className="h-8 w-64 bg-zinc-900/60 rounded-lg animate-pulse" />
+                <div className="h-4 w-80 max-w-full bg-zinc-900/40 rounded-md animate-pulse" />
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-[140px] bg-zinc-900/60 rounded-lg animate-pulse" />
+                <div className="h-10 w-10 bg-zinc-900/60 rounded-lg animate-pulse" />
+              </div>
+            </div>
+
+            {/* Overview Cards Skeleton */}
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="bg-zinc-900/20 border border-zinc-900/80 p-6 rounded-2xl space-y-4 relative overflow-hidden">
+                  <div className="flex items-center justify-between">
+                    <div className="h-4 w-28 bg-zinc-900/60 rounded animate-pulse" />
+                    <div className="size-8 bg-zinc-900/60 rounded-lg animate-pulse" />
+                  </div>
+                  <div className="h-8 w-20 bg-zinc-900/85 rounded animate-pulse" />
+                  <div className="h-3.5 w-44 bg-zinc-900/40 rounded animate-pulse" />
+                </div>
+              ))}
+            </div>
+
+            {/* Tabs Navigation Skeleton */}
+            <div className="bg-zinc-950/40 border border-zinc-900/80 p-1.5 rounded-xl flex gap-2 overflow-x-auto">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="h-9 w-32 bg-zinc-900/60 rounded-lg shrink-0 animate-pulse" />
+              ))}
+            </div>
+
+            {/* Tab Content Overview Skeleton */}
+            <div className="grid gap-6 md:grid-cols-2">
+              {/* Status Distribution Skeleton */}
+              <div className="bg-zinc-900/20 border border-zinc-900/80 rounded-2xl p-6 space-y-6">
+                <div className="space-y-2">
+                  <div className="h-5 w-48 bg-zinc-900/60 rounded animate-pulse" />
+                  <div className="h-4 w-72 bg-zinc-900/40 rounded animate-pulse" />
+                </div>
+                <div className="space-y-4">
+                  {Array.from({ length: 4 }).map((_, idx) => (
+                    <div key={idx} className="space-y-2">
+                      <div className="flex justify-between">
+                        <div className="h-3.5 w-20 bg-zinc-900/60 rounded animate-pulse" />
+                        <div className="h-3.5 w-12 bg-zinc-900/60 rounded animate-pulse" />
+                      </div>
+                      <div className="h-3 w-full bg-zinc-900/30 rounded-full overflow-hidden">
+                        <div className="h-full bg-zinc-900/60 rounded-full w-2/3 animate-pulse" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Check-ins Tracker Skeleton */}
+              <div className="bg-zinc-900/20 border border-zinc-900/80 rounded-2xl p-6 space-y-6">
+                <div className="space-y-2">
+                  <div className="h-5 w-52 bg-zinc-900/60 rounded animate-pulse" />
+                  <div className="h-4 w-64 bg-zinc-900/40 rounded animate-pulse" />
+                </div>
+                <div className="space-y-5 divide-y divide-zinc-900/80">
+                  {Array.from({ length: 4 }).map((_, idx) => (
+                    <div key={idx} className="flex justify-between items-center pt-4 first:pt-0">
+                      <div className="space-y-2">
+                        <div className="h-4 w-24 bg-zinc-900/60 rounded animate-pulse" />
+                        <div className="h-3 w-48 bg-zinc-900/40 rounded animate-pulse" />
+                      </div>
+                      <div className="h-6 w-20 bg-zinc-900/60 rounded-full animate-pulse" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
-    <main className="flex-1 p-6 space-y-8 max-w-7xl mx-auto w-full">
+    <div className="flex flex-col min-h-screen bg-[#09090b]">
+      <AdminNavbar activeTab={activeTab} onTabChange={setActiveTab} />
+      <main className="flex-1 p-6 space-y-8 max-w-7xl mx-auto w-full">
       {/* Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -523,13 +710,11 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
             <Label htmlFor="global-cycle" className="text-xs font-bold text-neutral-400 uppercase shrink-0">
               Active Cycle:
             </Label>
-            <Select value={selectedCycle} onValueChange={(val) => setSelectedCycle(val || "2024")}>
+            <Select value={selectedCycle} onValueChange={(val) => setSelectedCycle(val || "2026")}>
               <SelectTrigger id="global-cycle" className="w-[120px] bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800">
-                <SelectValue placeholder="2024" />
+                <SelectValue placeholder="2026" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="2024">2024 Cycle</SelectItem>
-                <SelectItem value="2025">2025 Cycle</SelectItem>
                 <SelectItem value="2026">2026 Cycle</SelectItem>
               </SelectContent>
             </Select>
@@ -608,422 +793,432 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
             <FileText className="h-4 w-4" />
             Reports
           </TabsTrigger>
+          <TabsTrigger value="profile" className="gap-2 rounded-lg px-4 py-2 text-xs font-semibold uppercase tracking-wider">
+            <User className="h-4 w-4" />
+            Profile Settings
+          </TabsTrigger>
         </TabsList>
 
         {/* Tab 1: System Overview */}
         <TabsContent value="overview" className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-2">
-            {/* Status Distribution */}
-            <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800">
-              <CardHeader>
-                <CardTitle className="text-lg font-bold">Goal Sheet Status Distribution</CardTitle>
-                <CardDescription>Visual tracker of workflow stages for active employee sheets.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {stats?.goalSheets?.distribution ? (
-                  Object.entries(stats.goalSheets.distribution).map(([status, count]: [string, any]) => {
-                    const total = stats.goalSheets.total || 1;
-                    const percent = Math.round((count / total) * 100);
-                    
-                    let barColor = "bg-neutral-400";
-                    if (status === "APPROVED") barColor = "bg-emerald-500";
-                    if (status === "SUBMITTED") barColor = "bg-blue-500";
-                    if (status === "UNDER_REVIEW") barColor = "bg-amber-500";
-                    if (status === "REWORK_REQUIRED") barColor = "bg-rose-500";
+          {activeTab === "overview" && (
+            <div className="grid gap-6 md:grid-cols-2">
+              {/* Status Distribution */}
+              <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800">
+                <CardHeader>
+                  <CardTitle className="text-lg font-bold">Goal Sheet Status Distribution</CardTitle>
+                  <CardDescription>Visual tracker of workflow stages for active employee sheets.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {stats?.goalSheets?.distribution ? (
+                    Object.entries(stats.goalSheets.distribution).map(([status, count]: [string, any]) => {
+                      const total = stats.goalSheets.total || 1;
+                      const percent = Math.round((count / total) * 100);
+                      
+                      let barColor = "bg-neutral-400";
+                      if (status === "APPROVED") barColor = "bg-emerald-500";
+                      if (status === "SUBMITTED") barColor = "bg-blue-500";
+                      if (status === "UNDER_REVIEW") barColor = "bg-amber-500";
+                      if (status === "REWORK_REQUIRED") barColor = "bg-rose-500";
 
-                    return (
-                      <div key={status} className="space-y-1">
-                        <div className="flex justify-between text-xs font-medium">
-                          <span className="text-neutral-500 uppercase tracking-wide">{status.replace(/_/g, " ")}</span>
-                          <span className="text-neutral-900 dark:text-neutral-100 font-bold">{count} ({percent}%)</span>
-                        </div>
-                        <div className="h-2.5 w-full bg-neutral-100 dark:bg-neutral-900 rounded-full overflow-hidden">
-                          <div className={`h-full ${barColor} rounded-full`} style={{ width: `${percent}%` }} />
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="h-48 flex items-center justify-center text-sm text-neutral-500">
-                    No data in cycle {selectedCycle}.
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Check-ins Tracker */}
-            <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800">
-              <CardHeader>
-                <CardTitle className="text-lg font-bold">Quarterly Check-In Completion</CardTitle>
-                <CardDescription>Overall tracking of employee check-ins across the 4 quarters.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="divide-y divide-neutral-100 dark:divide-neutral-900">
-                  {stats?.checkIns?.map((q: any) => {
-                    const submissionRatio = q.total > 0 ? Math.round((q.reviewed / q.total) * 100) : 0;
-                    return (
-                      <div key={q.quarter} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between">
-                        <div>
-                          <div className="font-bold text-sm text-neutral-900 dark:text-neutral-100">Quarter {q.quarter}</div>
-                          <div className="text-xs text-neutral-500">
-                            {q.total} Check-ins submitted ({q.reviewed} reviewed, {q.pending} pending)
+                      return (
+                        <div key={status} className="space-y-1">
+                          <div className="flex justify-between text-xs font-medium">
+                            <span className="text-neutral-500 uppercase tracking-wide">{status.replace(/_/g, " ")}</span>
+                            <span className="text-neutral-900 dark:text-neutral-100 font-bold">{count} ({percent}%)</span>
+                          </div>
+                          <div className="h-2.5 w-full bg-neutral-100 dark:bg-neutral-900 rounded-full overflow-hidden">
+                            <div className={`h-full ${barColor} rounded-full`} style={{ width: `${percent}%` }} />
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge className={submissionRatio === 100 && q.total > 0 ? "bg-emerald-500/10 text-emerald-500 border-none" : "bg-neutral-100 dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 border-none"}>
-                            {submissionRatio}% Reviewed
-                          </Badge>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {(!stats?.checkIns || stats.checkIns.length === 0) && (
+                      );
+                    })
+                  ) : (
                     <div className="h-48 flex items-center justify-center text-sm text-neutral-500">
-                      No check-ins logged.
+                      No data in cycle {selectedCycle}.
                     </div>
                   )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                </CardContent>
+              </Card>
+
+              {/* Check-ins Tracker */}
+              <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800">
+                <CardHeader>
+                  <CardTitle className="text-lg font-bold">Quarterly Check-In Completion</CardTitle>
+                  <CardDescription>Overall tracking of employee check-ins across the 4 quarters.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="divide-y divide-neutral-100 dark:divide-neutral-900">
+                    {stats?.checkIns?.map((q: any) => {
+                      const submissionRatio = q.total > 0 ? Math.round((q.reviewed / q.total) * 100) : 0;
+                      return (
+                        <div key={q.quarter} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between">
+                          <div>
+                            <div className="font-bold text-sm text-neutral-900 dark:text-neutral-100">Quarter {q.quarter}</div>
+                            <div className="text-xs text-neutral-500">
+                              {q.total} Check-ins submitted ({q.reviewed} reviewed, {q.pending} pending)
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge className={submissionRatio === 100 && q.total > 0 ? "bg-emerald-500/10 text-emerald-500 border-none" : "bg-neutral-100 dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 border-none"}>
+                              {submissionRatio}% Reviewed
+                            </Badge>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {(!stats?.checkIns || stats.checkIns.length === 0) && (
+                      <div className="h-48 flex items-center justify-center text-sm text-neutral-500">
+                        No check-ins logged.
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </TabsContent>
 
         {/* Tab 1.5: Analytics Portal */}
         <TabsContent value="analytics" className="space-y-6">
-          {/* Performance Control Bar */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-neutral-50 dark:bg-neutral-900/40 p-4 rounded-2xl border border-neutral-200 dark:border-neutral-800/80">
-            <div>
-              <h3 className="text-sm font-bold text-neutral-900 dark:text-neutral-100 uppercase tracking-wider">Quarterly Drilldown Filter</h3>
-              <p className="text-xs text-neutral-500 mt-0.5">Applies to Manager Effectiveness and Department Performance.</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Select value={selectedAnalyticsQuarter} onValueChange={(val) => setSelectedAnalyticsQuarter(val || "1")}>
-                <SelectTrigger className="w-[160px] bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800">
-                  <SelectValue placeholder="Select Quarter" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">Quarter 1</SelectItem>
-                  <SelectItem value="2">Quarter 2</SelectItem>
-                  <SelectItem value="3">Quarter 3</SelectItem>
-                  <SelectItem value="4">Quarter 4</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button variant="outline" size="icon" onClick={fetchAnalytics} disabled={loadingAnalytics} className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800">
-                <RefreshCw className={`h-4 w-4 ${loadingAnalytics ? "animate-spin" : ""}`} />
-              </Button>
-            </div>
-          </div>
+          {activeTab === "analytics" && (
+            <>
+              {/* Performance Control Bar */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-neutral-50 dark:bg-neutral-900/40 p-4 rounded-2xl border border-neutral-200 dark:border-neutral-800/80">
+                <div>
+                  <h3 className="text-sm font-bold text-neutral-900 dark:text-neutral-100 uppercase tracking-wider">Quarterly Drilldown Filter</h3>
+                  <p className="text-xs text-neutral-500 mt-0.5">Applies to Manager Effectiveness and Department Performance.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Select value={selectedAnalyticsQuarter} onValueChange={(val) => setSelectedAnalyticsQuarter(val || "1")}>
+                    <SelectTrigger className="w-[160px] bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800">
+                      <SelectValue placeholder="Select Quarter" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">Quarter 1</SelectItem>
+                      <SelectItem value="2">Quarter 2</SelectItem>
+                      <SelectItem value="3">Quarter 3</SelectItem>
+                      <SelectItem value="4">Quarter 4</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button variant="outline" size="icon" onClick={fetchAnalytics} disabled={loadingAnalytics} className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800">
+                    <RefreshCw className={`h-4 w-4 ${loadingAnalytics ? "animate-spin" : ""}`} />
+                  </Button>
+                </div>
+              </div>
 
-          {loadingAnalytics && !analyticsData ? (
-            <div className="h-96 flex flex-col items-center justify-center gap-4 text-sm text-neutral-500 bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 rounded-2xl">
-              <RefreshCw className="h-8 w-8 animate-spin text-neutral-400" />
-              <span>Analyzing organizational output...</span>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {/* Charts Grid */}
-              <div className="grid gap-6 md:grid-cols-2">
-                {/* QoQ Trends Area Chart */}
-                <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800">
-                  <CardHeader>
-                    <CardTitle className="text-lg font-bold flex items-center gap-2">
-                      <TrendingUp className="h-5 w-5 text-emerald-500" />
-                      Quarter-over-Quarter Performance Trends
-                    </CardTitle>
-                    <CardDescription>Track company-wide average weighted progress over the quarters.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="h-80">
-                    {mounted && (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={analyticsData?.qoqTrends || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id="colorProgress" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
-                              <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#262626" opacity={0.3} />
-                          <XAxis dataKey="quarter" tickFormatter={(q) => `Q${q}`} stroke="#737373" fontSize={11} fontWeight={600} />
-                          <YAxis domain={[0, 100]} stroke="#737373" fontSize={11} fontWeight={600} />
-                          <Tooltip content={({ active, payload }) => {
-                            if (active && payload && payload.length) {
-                              return (
-                                <div className="bg-neutral-950 border border-neutral-850 p-3 rounded-xl shadow-2xl backdrop-blur-md">
-                                  <p className="text-xs font-bold text-neutral-400 uppercase tracking-wide">Quarter {payload[0].payload.quarter}</p>
-                                  <p className="text-sm font-black text-white mt-1">Average Progress: <span className="text-emerald-400">{payload[0].value}%</span></p>
-                                  <div className="border-t border-neutral-800 my-2 pt-1.5 space-y-1">
-                                    <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Goal Achievements Status</p>
-                                    <p className="text-xs text-neutral-300">Not Started: <span className="font-bold text-neutral-400">{payload[0].payload.statusDistribution.notStarted}%</span></p>
-                                    <p className="text-xs text-neutral-300">On Track: <span className="font-bold text-amber-400">{payload[0].payload.statusDistribution.onTrack}%</span></p>
-                                    <p className="text-xs text-neutral-300">Completed: <span className="font-bold text-emerald-400">{payload[0].payload.statusDistribution.completed}%</span></p>
-                                  </div>
-                                </div>
-                              );
-                            }
-                            return null;
-                          }} />
-                          <Area type="monotone" dataKey="averageProgress" stroke="#10b981" fillOpacity={1} fill="url(#colorProgress)" strokeWidth={3} />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    )}
-                  </CardContent>
-                </Card>
+              {loadingAnalytics && !analyticsData ? (
+                <div className="h-96 flex flex-col items-center justify-center gap-4 text-sm text-neutral-500 bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 rounded-2xl">
+                  <RefreshCw className="h-8 w-8 animate-spin text-neutral-400" />
+                  <span>Analyzing organizational output...</span>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Charts Grid */}
+                  <div className="grid gap-6 md:grid-cols-2">
+                    {/* QoQ Trends Area Chart */}
+                    <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800">
+                      <CardHeader>
+                        <CardTitle className="text-lg font-bold flex items-center gap-2">
+                          <TrendingUp className="h-5 w-5 text-emerald-500" />
+                          Quarter-over-Quarter Performance Trends
+                        </CardTitle>
+                        <CardDescription>Track company-wide average weighted progress over the quarters.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="h-80">
+                        {mounted && (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={analyticsData?.qoqTrends || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                              <defs>
+                                <linearGradient id="colorProgress" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                                  <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#262626" opacity={0.3} />
+                              <XAxis dataKey="quarter" tickFormatter={(q) => `Q${q}`} stroke="#737373" fontSize={11} fontWeight={600} />
+                              <YAxis domain={[0, 100]} stroke="#737373" fontSize={11} fontWeight={600} />
+                              <Tooltip content={({ active, payload }) => {
+                                if (active && payload && payload.length) {
+                                  return (
+                                    <div className="bg-neutral-950 border border-neutral-850 p-3 rounded-xl shadow-2xl backdrop-blur-md">
+                                      <p className="text-xs font-bold text-neutral-400 uppercase tracking-wide">Quarter {payload[0].payload.quarter}</p>
+                                      <p className="text-sm font-black text-white mt-1">Average Progress: <span className="text-emerald-400">{payload[0].value}%</span></p>
+                                      <div className="border-t border-neutral-800 my-2 pt-1.5 space-y-1">
+                                        <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Goal Achievements Status</p>
+                                        <p className="text-xs text-neutral-300">Not Started: <span className="font-bold text-neutral-400">{payload[0].payload.statusDistribution.notStarted}%</span></p>
+                                        <p className="text-xs text-neutral-300">On Track: <span className="font-bold text-amber-400">{payload[0].payload.statusDistribution.onTrack}%</span></p>
+                                        <p className="text-xs text-neutral-300">Completed: <span className="font-bold text-emerald-400">{payload[0].payload.statusDistribution.completed}%</span></p>
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              }} />
+                              <Area type="monotone" dataKey="averageProgress" stroke="#10b981" fillOpacity={1} fill="url(#colorProgress)" strokeWidth={3} />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        )}
+                      </CardContent>
+                    </Card>
 
-                {/* Goal Status Donut Chart */}
-                <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800">
-                  <CardHeader>
-                    <CardTitle className="text-lg font-bold flex items-center gap-2">
-                      <Target className="h-5 w-5 text-amber-500" />
-                      Goal Achievement Distribution (Q{selectedAnalyticsQuarter})
-                    </CardTitle>
-                    <CardDescription>Status breakdown of goal achievements in the selected quarter.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="h-80 flex flex-col justify-center">
-                    {mounted && (() => {
-                      const activeTrend = analyticsData?.qoqTrends?.find((t: any) => t.quarter === parseInt(selectedAnalyticsQuarter, 10));
-                      const pieData = [
-                        { name: "Completed", value: activeTrend?.statusDistribution?.completed || 0, color: "#10b981" },
-                        { name: "On Track", value: activeTrend?.statusDistribution?.onTrack || 0, color: "#f59e0b" },
-                        { name: "Not Started", value: activeTrend?.statusDistribution?.notStarted || 0, color: "#737373" },
-                      ].filter(item => item.value > 0);
+                    {/* Goal Status Donut Chart */}
+                    <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800">
+                      <CardHeader>
+                        <CardTitle className="text-lg font-bold flex items-center gap-2">
+                          <Target className="h-5 w-5 text-amber-500" />
+                          Goal Achievement Distribution (Q{selectedAnalyticsQuarter})
+                        </CardTitle>
+                        <CardDescription>Status breakdown of goal achievements in the selected quarter.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="h-80 flex flex-col justify-center">
+                        {mounted && (() => {
+                          const activeTrend = analyticsData?.qoqTrends?.find((t: any) => t.quarter === parseInt(selectedAnalyticsQuarter, 10));
+                          const pieData = [
+                            { name: "Completed", value: activeTrend?.statusDistribution?.completed || 0, color: "#10b981" },
+                            { name: "On Track", value: activeTrend?.statusDistribution?.onTrack || 0, color: "#f59e0b" },
+                            { name: "Not Started", value: activeTrend?.statusDistribution?.notStarted || 0, color: "#737373" },
+                          ].filter(item => item.value > 0);
 
-                      if (pieData.length === 0) {
-                        return (
-                          <div className="h-full flex items-center justify-center text-sm text-neutral-500">
-                            No achievements recorded for Q{selectedAnalyticsQuarter}.
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <div className="grid grid-cols-5 h-full items-center">
-                          <div className="col-span-3 h-full">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <PieChart>
-                                <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={75} paddingAngle={4} dataKey="value">
-                                  {pieData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.color} />
-                                  ))}
-                                </Pie>
-                                <Tooltip formatter={(value) => [`${value}%`, "Share"]} contentStyle={{ backgroundColor: "#171717", borderColor: "#262626", borderRadius: "10px", color: "#fff" }} />
-                              </PieChart>
-                            </ResponsiveContainer>
-                          </div>
-                          <div className="col-span-2 space-y-4 pr-2">
-                            {pieData.map((item) => (
-                              <div key={item.name} className="flex flex-col space-y-0.5">
-                                <div className="flex items-center gap-2 text-xs font-semibold">
-                                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-                                  <span className="text-neutral-400">{item.name}</span>
-                                </div>
-                                <span className="text-lg font-black pl-4.5 text-neutral-900 dark:text-neutral-100">{item.value}%</span>
+                          if (pieData.length === 0) {
+                            return (
+                              <div className="h-full flex items-center justify-center text-sm text-neutral-500">
+                                No achievements recorded for Q{selectedAnalyticsQuarter}.
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Department Progress Comparison Chart */}
-              <div className="grid gap-6 md:grid-cols-5">
-                <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800 md:col-span-3">
-                  <CardHeader>
-                    <CardTitle className="text-lg font-bold flex items-center gap-2">
-                      <Building className="h-5 w-5 text-blue-500" />
-                      Department Performance Index (Q{selectedAnalyticsQuarter})
-                    </CardTitle>
-                    <CardDescription>Comparison of average weighted progress across manager departments.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="h-80">
-                    {mounted && (() => {
-                      const barData = analyticsData?.departmentPerformance || [];
-                      if (barData.length === 0) {
-                        return (
-                          <div className="h-full flex items-center justify-center text-sm text-neutral-500">
-                            No department records.
-                          </div>
-                        );
-                      }
-                      return (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={barData} layout="vertical" margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#262626" opacity={0.3} />
-                            <XAxis type="number" domain={[0, 100]} stroke="#737373" fontSize={11} fontWeight={600} />
-                            <YAxis dataKey="managerName" type="category" stroke="#737373" fontSize={10} width={100} tickFormatter={(t) => t.split(" ")[0]} />
-                            <Tooltip formatter={(value) => [`${value}%`, "Avg Progress"]} contentStyle={{ backgroundColor: "#171717", borderColor: "#262626", borderRadius: "10px", color: "#fff" }} />
-                            <Bar dataKey="averageProgress" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={16}>
-                              {barData.map((entry: any, index: number) => {
-                                const color = entry.averageProgress >= 75 ? "#10b981" : "#3b82f6";
-                                return <Cell key={`cell-${index}`} fill={color} />;
-                              })}
-                            </Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      );
-                    })()}
-                  </CardContent>
-                </Card>
-
-                {/* Strategic Thrust Areas Card */}
-                <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800 md:col-span-2">
-                  <CardHeader>
-                    <CardTitle className="text-lg font-bold flex items-center gap-2">
-                      <Award className="h-5 w-5 text-indigo-500" />
-                      Strategic Thrust Areas (Q{selectedAnalyticsQuarter})
-                    </CardTitle>
-                    <CardDescription>Aggregate performance indexes grouped by organizational thrust areas.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="h-80 overflow-y-auto space-y-4 pr-1">
-                    {(() => {
-                      const thrustAreas: Record<string, { total: number; count: number }> = {};
-                      const depts = analyticsData?.departmentPerformance || [];
-                      depts.forEach((d: any) => {
-                        d.thrustAreaPerformance?.forEach((ta: any) => {
-                          if (!thrustAreas[ta.thrustArea]) {
-                            thrustAreas[ta.thrustArea] = { total: 0, count: 0 };
+                            );
                           }
-                          thrustAreas[ta.thrustArea].total += ta.averageProgress;
-                          thrustAreas[ta.thrustArea].count++;
-                        });
-                      });
 
-                      const taList = Object.entries(thrustAreas).map(([name, data]) => ({
-                        name,
-                        average: Math.round((data.total / data.count) * 100) / 100,
-                      })).sort((a, b) => b.average - a.average);
-
-                      if (taList.length === 0) {
-                        return (
-                          <div className="h-full flex items-center justify-center text-sm text-neutral-500 py-12">
-                            No thrust areas identified in this cycle.
-                          </div>
-                        );
-                      }
-
-                      return taList.map((ta) => {
-                        let trackColor = "bg-blue-500";
-                        if (ta.average >= 75) trackColor = "bg-emerald-500";
-                        else if (ta.average < 50) trackColor = "bg-rose-500";
-
-                        return (
-                          <div key={ta.name} className="space-y-1 bg-neutral-50 dark:bg-neutral-900/30 border border-neutral-100 dark:border-neutral-900/50 p-3 rounded-xl">
-                            <div className="flex justify-between items-center text-xs font-bold">
-                              <span className="text-neutral-400 capitalize">{ta.name}</span>
-                              <span className="text-neutral-900 dark:text-neutral-100 font-extrabold">{ta.average}%</span>
+                          return (
+                            <div className="grid grid-cols-5 h-full items-center">
+                              <div className="col-span-3 h-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <PieChart>
+                                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={75} paddingAngle={4} dataKey="value">
+                                      {pieData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={entry.color} />
+                                      ))}
+                                    </Pie>
+                                    <Tooltip formatter={(value) => [`${value}%`, "Share"]} contentStyle={{ backgroundColor: "#171717", borderColor: "#262626", borderRadius: "10px", color: "#fff" }} />
+                                  </PieChart>
+                                </ResponsiveContainer>
+                              </div>
+                              <div className="col-span-2 space-y-4 pr-2">
+                                {pieData.map((item) => (
+                                  <div key={item.name} className="flex flex-col space-y-0.5">
+                                    <div className="flex items-center gap-2 text-xs font-semibold">
+                                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                                      <span className="text-neutral-400">{item.name}</span>
+                                    </div>
+                                    <span className="text-lg font-black pl-4.5 text-neutral-900 dark:text-neutral-100">{item.value}%</span>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
-                            <div className="h-2 w-full bg-neutral-100 dark:bg-neutral-900 rounded-full overflow-hidden">
-                              <div className={`h-full ${trackColor} rounded-full`} style={{ width: `${ta.average}%` }} />
-                            </div>
-                          </div>
-                        );
-                      });
-                    })()}
-                  </CardContent>
-                </Card>
-              </div>
+                          );
+                        })()}
+                      </CardContent>
+                    </Card>
+                  </div>
 
-              {/* Compliance & Activity Grid Heatmap */}
-              <div className="grid gap-6 md:grid-cols-3">
-                {/* Team Check-in Grid Heatmap */}
-                <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800 md:col-span-1">
-                  <CardHeader>
-                    <CardTitle className="text-lg font-bold flex items-center gap-2">
-                      <Grid className="h-5 w-5 text-teal-500" />
-                      Check-In Activity Heatmap
-                    </CardTitle>
-                    <CardDescription>Individual check-in status grid per department for Q{selectedAnalyticsQuarter}.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="h-80 overflow-y-auto space-y-4">
-                    {(() => {
-                      const managersList = analyticsData?.managerEffectiveness || [];
-                      if (managersList.length === 0) {
-                        return (
-                          <div className="h-full flex items-center justify-center text-sm text-neutral-500">
-                            No active check-in data.
-                          </div>
-                        );
-                      }
-                      return managersList.map((mgr: any) => {
-                        const reviewed = mgr.checkIns.reviewed;
-                        const pending = mgr.checkIns.pending;
-                        const unsubmitted = mgr.subordinateCount - mgr.checkIns.submitted;
+                  {/* Department Progress Comparison Chart */}
+                  <div className="grid gap-6 md:grid-cols-5">
+                    <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800 md:col-span-3">
+                      <CardHeader>
+                        <CardTitle className="text-lg font-bold flex items-center gap-2">
+                          <Building className="h-5 w-5 text-blue-500" />
+                          Department Performance Index (Q{selectedAnalyticsQuarter})
+                        </CardTitle>
+                        <CardDescription>Comparison of average weighted progress across manager departments.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="h-80">
+                        {mounted && (() => {
+                          const barData = analyticsData?.departmentPerformance || [];
+                          if (barData.length === 0) {
+                            return (
+                              <div className="h-full flex items-center justify-center text-sm text-neutral-500">
+                                No department records.
+                              </div>
+                            );
+                          }
+                          return (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={barData} layout="vertical" margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#262626" opacity={0.3} />
+                                <XAxis type="number" domain={[0, 100]} stroke="#737373" fontSize={11} fontWeight={600} />
+                                <YAxis dataKey="managerName" type="category" stroke="#737373" fontSize={10} width={100} tickFormatter={(t) => t.split(" ")[0]} />
+                                <Tooltip formatter={(value) => [`${value}%`, "Avg Progress"]} contentStyle={{ backgroundColor: "#171717", borderColor: "#262626", borderRadius: "10px", color: "#fff" }} />
+                                <Bar dataKey="averageProgress" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={16}>
+                                  {barData.map((entry: any, index: number) => {
+                                    const color = entry.averageProgress >= 75 ? "#10b981" : "#3b82f6";
+                                    return <Cell key={`cell-${index}`} fill={color} />;
+                                  })}
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                          );
+                        })()}
+                      </CardContent>
+                    </Card>
 
-                        return (
-                          <div key={mgr.managerId} className="space-y-1.5 border-b border-neutral-100 dark:border-neutral-900 pb-3 last:border-none last:pb-0">
-                            <div className="flex justify-between items-center text-xs">
-                              <span className="font-bold text-neutral-900 dark:text-neutral-200">{mgr.managerName.split(" ")[0]}'s Team</span>
-                              <span className="text-[10px] text-neutral-500 font-medium">Compliance: {mgr.checkIns.reviewRate}%</span>
-                            </div>
-                            <div className="flex flex-wrap gap-1.5">
-                              {Array.from({ length: reviewed }).map((_, i) => (
-                                <div key={`rev-${i}`} className="h-4.5 w-4.5 rounded bg-emerald-500 hover:bg-emerald-400 transition-colors" title="Reviewed" />
+                    {/* Strategic Thrust Areas Card */}
+                    <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800 md:col-span-2">
+                      <CardHeader>
+                        <CardTitle className="text-lg font-bold flex items-center gap-2">
+                          <Award className="h-5 w-5 text-indigo-500" />
+                          Strategic Thrust Areas (Q{selectedAnalyticsQuarter})
+                        </CardTitle>
+                        <CardDescription>Aggregate performance indexes grouped by organizational thrust areas.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="h-80 overflow-y-auto space-y-4 pr-1">
+                        {(() => {
+                          const thrustAreas: Record<string, { total: number; count: number }> = {};
+                          const depts = analyticsData?.departmentPerformance || [];
+                          depts.forEach((d: any) => {
+                            d.thrustAreaPerformance?.forEach((ta: any) => {
+                              if (!thrustAreas[ta.thrustArea]) {
+                                thrustAreas[ta.thrustArea] = { total: 0, count: 0 };
+                              }
+                              thrustAreas[ta.thrustArea].total += ta.averageProgress;
+                              thrustAreas[ta.thrustArea].count++;
+                            });
+                          });
+
+                          const taList = Object.entries(thrustAreas).map(([name, data]) => ({
+                            name,
+                            average: Math.round((data.total / data.count) * 100) / 100,
+                          })).sort((a, b) => b.average - a.average);
+
+                          if (taList.length === 0) {
+                            return (
+                              <div className="h-full flex items-center justify-center text-sm text-neutral-500 py-12">
+                                No thrust areas identified in this cycle.
+                              </div>
+                            );
+                          }
+
+                          return taList.map((ta) => {
+                            let trackColor = "bg-blue-500";
+                            if (ta.average >= 75) trackColor = "bg-emerald-500";
+                            else if (ta.average < 50) trackColor = "bg-rose-500";
+
+                            return (
+                              <div key={ta.name} className="space-y-1 bg-neutral-50 dark:bg-neutral-900/30 border border-neutral-100 dark:border-neutral-900/50 p-3 rounded-xl">
+                                <div className="flex justify-between items-center text-xs font-bold">
+                                  <span className="text-neutral-400 capitalize">{ta.name}</span>
+                                  <span className="text-neutral-900 dark:text-neutral-100 font-extrabold">{ta.average}%</span>
+                                </div>
+                                <div className="h-2 w-full bg-neutral-100 dark:bg-neutral-900 rounded-full overflow-hidden">
+                                  <div className={`h-full ${trackColor} rounded-full`} style={{ width: `${ta.average}%` }} />
+                                </div>
+                              </div>
+                            );
+                          });
+                        })()}
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Compliance & Activity Grid Heatmap */}
+                  <div className="grid gap-6 md:grid-cols-3">
+                    {/* Team Check-in Grid Heatmap */}
+                    <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800 md:col-span-1">
+                      <CardHeader>
+                        <CardTitle className="text-lg font-bold flex items-center gap-2">
+                          <Grid className="h-5 w-5 text-teal-500" />
+                          Check-In Activity Heatmap
+                        </CardTitle>
+                        <CardDescription>Individual check-in status grid per department for Q{selectedAnalyticsQuarter}.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="h-80 overflow-y-auto space-y-4">
+                        {(() => {
+                          const managersList = analyticsData?.managerEffectiveness || [];
+                          if (managersList.length === 0) {
+                            return (
+                              <div className="h-full flex items-center justify-center text-sm text-neutral-500">
+                                No active check-in data.
+                              </div>
+                            );
+                          }
+                          return managersList.map((mgr: any) => {
+                            const reviewed = mgr.checkIns.reviewed;
+                            const pending = mgr.checkIns.pending;
+                            const unsubmitted = mgr.subordinateCount - mgr.checkIns.submitted;
+
+                            return (
+                              <div key={mgr.managerId} className="space-y-1.5 border-b border-neutral-100 dark:border-neutral-900 pb-3 last:border-none last:pb-0">
+                                <div className="flex justify-between items-center text-xs">
+                                  <span className="font-bold text-neutral-900 dark:text-neutral-200">{mgr.managerName.split(" ")[0]}'s Team</span>
+                                  <span className="text-[10px] text-neutral-500 font-medium">Compliance: {mgr.checkIns.reviewRate}%</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {Array.from({ length: reviewed }).map((_, i) => (
+                                    <div key={`rev-${i}`} className="h-4.5 w-4.5 rounded bg-emerald-500 hover:bg-emerald-400 transition-colors" title="Reviewed" />
+                                  ))}
+                                  {Array.from({ length: pending }).map((_, i) => (
+                                    <div key={`pend-${i}`} className="h-4.5 w-4.5 rounded bg-amber-500 hover:bg-amber-400 transition-colors animate-pulse" title="Submitted, Pending Review" />
+                                  ))}
+                                  {Array.from({ length: Math.max(0, unsubmitted) }).map((_, i) => (
+                                    <div key={`unsub-${i}`} className="h-4.5 w-4.5 rounded bg-neutral-200 dark:bg-neutral-850 hover:bg-neutral-300 dark:hover:bg-neutral-800 transition-colors" title="Not Started" />
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          });
+                        })()}
+                      </CardContent>
+                    </Card>
+
+                    {/* Sortable Manager Leadership Leaderboard */}
+                    <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800 md:col-span-2">
+                      <CardHeader>
+                        <CardTitle className="text-lg font-bold flex items-center gap-2">
+                          <Award className="h-5 w-5 text-yellow-500" />
+                          Manager Effectiveness Leaderboard
+                        </CardTitle>
+                        <CardDescription>Performance tracking and leadership speed for all managers in Q{selectedAnalyticsQuarter}.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="h-80 overflow-y-auto pr-1">
+                        <TableWrapper>
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="border-neutral-200 dark:border-neutral-800">
+                                <TableHead className="text-xs font-bold text-neutral-400">Manager</TableHead>
+                                <TableHead className="text-xs font-bold text-neutral-400 text-center">Team Size</TableHead>
+                                <TableHead className="text-xs font-bold text-neutral-400 text-center">Appr. Rate</TableHead>
+                                <TableHead className="text-xs font-bold text-neutral-400 text-center">Review Comp.</TableHead>
+                                <TableHead className="text-xs font-bold text-neutral-400 text-right">Avg Progress</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {(analyticsData?.managerEffectiveness || []).map((mgr: any) => (
+                                <TableRow key={mgr.managerId} className="border-neutral-100 dark:border-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-900/30">
+                                  <TableCell className="font-bold text-sm text-neutral-900 dark:text-neutral-100">{mgr.managerName}</TableCell>
+                                  <TableCell className="text-center font-semibold text-neutral-500">{mgr.subordinateCount}</TableCell>
+                                  <TableCell className="text-center font-bold text-neutral-900 dark:text-neutral-100">{mgr.goalSheets.approvalRate}%</TableCell>
+                                  <TableCell className="text-center">
+                                    <Badge className={mgr.checkIns.reviewRate === 100 ? "bg-emerald-500/10 text-emerald-500 border-none" : "bg-amber-500/10 text-amber-500 border-none"}>
+                                      {mgr.checkIns.reviewRate}%
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="text-right font-black text-emerald-500">{mgr.averageTeamProgress}%</TableCell>
+                                </TableRow>
                               ))}
-                              {Array.from({ length: pending }).map((_, i) => (
-                                <div key={`pend-${i}`} className="h-4.5 w-4.5 rounded bg-amber-500 hover:bg-amber-400 transition-colors animate-pulse" title="Submitted, Pending Review" />
-                              ))}
-                              {Array.from({ length: Math.max(0, unsubmitted) }).map((_, i) => (
-                                <div key={`unsub-${i}`} className="h-4.5 w-4.5 rounded bg-neutral-200 dark:bg-neutral-850 hover:bg-neutral-300 dark:hover:bg-neutral-800 transition-colors" title="Not Started" />
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      });
-                    })()}
-                  </CardContent>
-                </Card>
-
-                {/* Sortable Manager Leadership Leaderboard */}
-                <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800 md:col-span-2">
-                  <CardHeader>
-                    <CardTitle className="text-lg font-bold flex items-center gap-2">
-                      <Award className="h-5 w-5 text-yellow-500" />
-                      Manager Effectiveness Leaderboard
-                    </CardTitle>
-                    <CardDescription>Performance tracking and leadership speed for all managers in Q{selectedAnalyticsQuarter}.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="h-80 overflow-y-auto pr-1">
-                    <TableWrapper>
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="border-neutral-200 dark:border-neutral-800">
-                            <TableHead className="text-xs font-bold text-neutral-400">Manager</TableHead>
-                            <TableHead className="text-xs font-bold text-neutral-400 text-center">Team Size</TableHead>
-                            <TableHead className="text-xs font-bold text-neutral-400 text-center">Appr. Rate</TableHead>
-                            <TableHead className="text-xs font-bold text-neutral-400 text-center">Review Comp.</TableHead>
-                            <TableHead className="text-xs font-bold text-neutral-400 text-right">Avg Progress</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {(analyticsData?.managerEffectiveness || []).map((mgr: any) => (
-                            <TableRow key={mgr.managerId} className="border-neutral-100 dark:border-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-900/30">
-                              <TableCell className="font-bold text-sm text-neutral-900 dark:text-neutral-100">{mgr.managerName}</TableCell>
-                              <TableCell className="text-center font-semibold text-neutral-500">{mgr.subordinateCount}</TableCell>
-                              <TableCell className="text-center font-bold text-neutral-900 dark:text-neutral-100">{mgr.goalSheets.approvalRate}%</TableCell>
-                              <TableCell className="text-center">
-                                <Badge className={mgr.checkIns.reviewRate === 100 ? "bg-emerald-500/10 text-emerald-500 border-none" : "bg-amber-500/10 text-amber-500 border-none"}>
-                                  {mgr.checkIns.reviewRate}%
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-right font-black text-emerald-500">{mgr.averageTeamProgress}%</TableCell>
-                            </TableRow>
-                          ))}
-                          {(!analyticsData?.managerEffectiveness || analyticsData.managerEffectiveness.length === 0) && (
-                            <TableRow>
-                              <TableCell colSpan={5} className="text-center text-sm text-neutral-500 py-12">
-                                No manager aggregates logged.
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </TableWrapper>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
+                              {(!analyticsData?.managerEffectiveness || analyticsData.managerEffectiveness.length === 0) && (
+                                <TableRow>
+                                  <TableCell colSpan={5} className="text-center text-sm text-neutral-500 py-12">
+                                    No manager aggregates logged.
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </TableBody>
+                          </Table>
+                        </TableWrapper>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </TabsContent>
 
@@ -1477,14 +1672,14 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
               <Input
                 placeholder="Search users by name or email..."
                 value={userSearch}
-                onChange={(e) => setUserSearch(e.target.value)}
+                onChange={(e) => handleUserSearchChange(e.target.value)}
                 className="pl-10 bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800"
               />
             </div>
             
             <div className="flex items-center gap-2">
               <Label className="text-xs font-bold text-neutral-400 uppercase shrink-0">Role Filter:</Label>
-              <Select value={roleFilter} onValueChange={(val) => setRoleFilter(val || "ALL")}>
+              <Select value={roleFilter} onValueChange={(val) => handleRoleFilterChange(val || "ALL")}>
                 <SelectTrigger className="w-[140px] bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800">
                   <SelectValue placeholder="All" />
                 </SelectTrigger>
@@ -1579,6 +1774,76 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
                 )}
               </TableBody>
             </Table>
+
+            {/* Pagination Controls */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-neutral-100 dark:border-neutral-900 mt-4 px-4 pb-4">
+              <div className="text-xs font-semibold text-neutral-500">
+                Showing <span className="text-neutral-900 dark:text-neutral-100 font-extrabold">{userTotalCount === 0 ? 0 : Math.min((userPage - 1) * userPageSize + 1, userTotalCount)}</span> to{" "}
+                <span className="text-neutral-900 dark:text-neutral-100 font-extrabold">{Math.min(userPage * userPageSize, userTotalCount)}</span> of{" "}
+                <span className="text-neutral-900 dark:text-neutral-100 font-extrabold">{userTotalCount}</span> entries
+              </div>
+              <div className="flex flex-col sm:flex-row items-center gap-4">
+                {/* Page Size Selector */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-neutral-500 font-bold uppercase tracking-wider">Page Size:</span>
+                  <Select value={userPageSize.toString()} onValueChange={(val) => {
+                    setUserPageSize(Number(val));
+                    setUserPage(1);
+                  }}>
+                    <SelectTrigger className="w-[70px] h-8 bg-white dark:bg-neutral-900 border-neutral-250 dark:border-neutral-800 text-xs">
+                      <SelectValue placeholder="10" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="10">10</SelectItem>
+                      <SelectItem value="25">25</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {/* Buttons */}
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0 bg-white dark:bg-neutral-900 border-neutral-250 dark:border-neutral-800 text-xs"
+                    disabled={userPage <= 1}
+                    onClick={() => setUserPage(1)}
+                  >
+                    {"<<"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0 bg-white dark:bg-neutral-900 border-neutral-250 dark:border-neutral-800"
+                    disabled={userPage <= 1}
+                    onClick={() => setUserPage(userPage - 1)}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <div className="text-xs font-black px-3 py-1 bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-850 rounded-lg text-neutral-900 dark:text-neutral-100">
+                    Page {userPage} of {userTotalPages}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0 bg-white dark:bg-neutral-900 border-neutral-250 dark:border-neutral-800"
+                    disabled={userPage >= userTotalPages}
+                    onClick={() => setUserPage(userPage + 1)}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0 bg-white dark:bg-neutral-900 border-neutral-250 dark:border-neutral-800 text-xs"
+                    disabled={userPage >= userTotalPages}
+                    onClick={() => setUserPage(userTotalPages)}
+                  >
+                    {">>"}
+                  </Button>
+                </div>
+              </div>
+            </div>
           </TableWrapper>
         </TabsContent>
 
@@ -1958,6 +2223,57 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
             </Table>
           </TableWrapper>
         </TabsContent>
+
+        {/* Tab 8: Profile Settings */}
+        <TabsContent value="profile" className="space-y-6">
+          {/* Profile Inputs */}
+          <Card className="bg-white dark:bg-neutral-950 border-neutral-200 dark:border-neutral-800">
+            <CardHeader>
+              <CardTitle className="text-lg font-bold">Account Profile Settings</CardTitle>
+              <CardDescription className="text-xs text-neutral-500">Update your administrative profile details and security password.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <form onSubmit={handleProfileUpdate} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="prof-name" className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Full Name</Label>
+                    <Input id="prof-name" value={profileName} onChange={(e) => setProfileName(e.target.value)} className="bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800 text-neutral-900 dark:text-zinc-100" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="prof-email" className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Email Address</Label>
+                    <Input id="prof-email" defaultValue={adminEmail || "admin@atomquest.gov"} disabled className="bg-neutral-100 dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800 text-neutral-500 cursor-not-allowed" />
+                  </div>
+                </div>
+                
+                <div className="h-px bg-neutral-100 dark:bg-neutral-850/50 my-6" />
+                
+                <div className="space-y-4">
+                  <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Change Account Password</h3>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="prof-curr" className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Current Password</Label>
+                      <Input id="prof-curr" type="password" placeholder="••••••••" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} className="bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="prof-new" className="text-xs font-bold text-neutral-400 uppercase tracking-wider">New Password</Label>
+                      <Input id="prof-new" type="password" placeholder="••••••••" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="prof-conf" className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Confirm New Password</Label>
+                      <Input id="prof-conf" type="password" placeholder="••••••••" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4">
+                  <Button type="submit" disabled={changingPassword} className="bg-neutral-800 hover:bg-neutral-700 text-white dark:bg-neutral-200 dark:hover:bg-neutral-100 dark:text-neutral-950 font-bold px-6 h-10 text-xs shadow-md">
+                    {changingPassword ? "Saving Changes..." : "Save Account Changes"}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* User Editing Modal */}
@@ -2119,5 +2435,6 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
         </DialogContent>
       </Dialog>
     </main>
+    </div>
   );
 }

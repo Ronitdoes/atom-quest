@@ -56,20 +56,20 @@ export class SchedulerService {
           }
         });
 
-        // Notify all employees
+        // Notify all employees in bulk
         const employees = await tx.user.findMany({
           where: { role: Role.EMPLOYEE }
         });
 
-        for (const emp of employees) {
-          await tx.notification.create({
-            data: {
+        if (employees.length > 0) {
+          await tx.notification.createMany({
+            data: employees.map((emp) => ({
               userId: emp.id,
               title: `Q${window.quarter} Check-In Window Open`,
               message: `The performance check-in window for Q${window.quarter} (Cycle ${window.cycleId}) is now OPEN. Please submit your progress updates.`,
               type: "CHECKIN_DUE",
-              link: `/employee/check-ins?quarter=${window.quarter}`
-            }
+              link: `/employee/check-ins?quarter=${window.quarter}`,
+            })),
           });
         }
       });
@@ -102,20 +102,20 @@ export class SchedulerService {
           }
         });
 
-        // Notify all employees
+        // Notify all employees in bulk
         const employees = await tx.user.findMany({
           where: { role: Role.EMPLOYEE }
         });
 
-        for (const emp of employees) {
-          await tx.notification.create({
-            data: {
+        if (employees.length > 0) {
+          await tx.notification.createMany({
+            data: employees.map((emp) => ({
               userId: emp.id,
               title: `Q${window.quarter} Check-In Window Closed`,
               message: `The performance check-in window for Q${window.quarter} (Cycle ${window.cycleId}) is now CLOSED. Submissions are locked.`,
               type: "CHECKIN_DUE",
-              link: "/employee/check-ins"
-            }
+              link: "/employee/check-ins",
+            })),
           });
         }
       });
@@ -155,6 +155,7 @@ export class SchedulerService {
           },
           checkIns: {
             none: {
+              cycleId: window.cycleId,
               quarter: window.quarter
             }
           }
@@ -163,17 +164,17 @@ export class SchedulerService {
 
       const daysLeft = Math.ceil((window.endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-      for (const emp of employeesWithApprovedSheets) {
-        await db.notification.create({
-          data: {
+      if (employeesWithApprovedSheets.length > 0) {
+        await db.notification.createMany({
+          data: employeesWithApprovedSheets.map((emp) => ({
             userId: emp.id,
             title: `Urgent: Q${window.quarter} Check-In Closing Soon`,
             message: `Your Q${window.quarter} check-in window for cycle ${window.cycleId} closes in ${daysLeft} day(s). Please complete your updates immediately.`,
             type: "CHECKIN_DUE",
             link: `/employee/check-ins?quarter=${window.quarter}`
-          }
+          }))
         });
-        sentCount++;
+        sentCount += employeesWithApprovedSheets.length;
       }
     }
 
@@ -206,6 +207,7 @@ export class SchedulerService {
           },
           checkIns: {
             none: {
+              cycleId: window.cycleId,
               quarter: window.quarter
             }
           }
@@ -215,47 +217,58 @@ export class SchedulerService {
         }
       });
 
+      // Batch query all existing escalation notifications for this quarter to do in-memory deduplication
+      const existingEscalations = await db.notification.findMany({
+        where: {
+          type: "CHECKIN_ESCALATED",
+          title: { contains: `Q${window.quarter} Check-In Overdue` }
+        },
+        select: {
+          userId: true,
+          message: true
+        }
+      });
+
+      // Map to set of key identifiers for fast lookup
+      const existingKeys = new Set(
+        existingEscalations.map((notif) => `${notif.userId}:${notif.message}`)
+      );
+
+      const notificationsToCreate: any[] = [];
+      const auditLogsToCreate: any[] = [];
+
       for (const emp of negligentEmployees) {
         if (!emp.manager) continue;
 
-        // Check if we already escalated this to prevent double notifications in successive cron ticks
-        const existingEscalation = await db.notification.findFirst({
-          where: {
+        const expectedMessage = `Employee ${emp.name || emp.email} did not submit Q${window.quarter} check-in for cycle ${window.cycleId} before the window closed.`;
+        const lookupKey = `${emp.managerId}:${expectedMessage}`;
+
+        if (!existingKeys.has(lookupKey)) {
+          notificationsToCreate.push({
             userId: emp.managerId!,
+            title: `Escalation: Q${window.quarter} Check-In Overdue`,
+            message: expectedMessage,
             type: "CHECKIN_ESCALATED",
-            message: {
-              contains: `${emp.name || emp.email} did not submit Q${window.quarter} check-in`
-            }
-          }
-        });
+            link: `/manager`
+          });
 
-        if (!existingEscalation) {
-          await db.$transaction(async (tx) => {
-            // Notify manager
-            await tx.notification.create({
-              data: {
-                userId: emp.managerId!,
-                title: `Escalation: Q${window.quarter} Check-In Overdue`,
-                message: `Employee ${emp.name || emp.email} did not submit Q${window.quarter} check-in for cycle ${window.cycleId} before the window closed.`,
-                type: "CHECKIN_ESCALATED",
-                link: `/manager/dashboard`
-              }
-            });
-
-            // Log escalation event
-            await tx.auditLog.create({
-              data: {
-                userId: actorId,
-                action: "DELAY_ESCALATION",
-                entityType: "User",
-                entityId: emp.id,
-                newValue: { employeeId: emp.id, cycleId: window.cycleId, quarter: window.quarter }
-              }
-            });
+          auditLogsToCreate.push({
+            userId: actorId,
+            action: "DELAY_ESCALATION",
+            entityType: "User",
+            entityId: emp.id,
+            newValue: { employeeId: emp.id, cycleId: window.cycleId, quarter: window.quarter }
           });
 
           escalatedCount++;
         }
+      }
+
+      if (notificationsToCreate.length > 0) {
+        await db.$transaction([
+          db.notification.createMany({ data: notificationsToCreate }),
+          db.auditLog.createMany({ data: auditLogsToCreate })
+        ]);
       }
     }
 
@@ -271,23 +284,96 @@ export class SchedulerService {
     remindersSent: number;
     escalationsCount: number;
   }> {
-    console.log(`[Scheduler] Tick started at ${new Date().toISOString()}`);
+    const isRedisConfigured = !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+    let lockType: "REDIS" | "POSTGRES" | null = null;
 
-    const transitions = await this.checkAndTransitionWindows();
-    const { sentCount: remindersSent } = await this.sendAutomaticReminders();
-    const { escalatedCount: escalationsCount } = await this.escalateDelays();
+    try {
+      if (isRedisConfigured) {
+        const gotRedisLock = await CacheService.tryAcquireLock("scheduler", 120);
+        if (!gotRedisLock) {
+          console.warn("[Scheduler] Tick execution skipped: overlapping lock held on Redis.");
+          throw new Error("Lock acquisition failed: Scheduler execution is already in progress.");
+        }
+        lockType = "REDIS";
+      } else {
+        const advisoryResult = await db.$queryRawUnsafe<any[]>(
+          "SELECT pg_try_advisory_lock(889988) AS locked;"
+        );
+        const lockedVal = advisoryResult[0]?.locked;
+        const gotPostgresLock = lockedVal === true || String(lockedVal) === "true" || Number(lockedVal) === 1;
 
-    console.log(`[Scheduler] Tick finished: Opened: ${transitions.opened.length}, Closed: ${transitions.closed.length}, Reminders: ${remindersSent}, Escalations: ${escalationsCount}`);
+        if (!gotPostgresLock) {
+          console.warn("[Scheduler] Tick execution skipped: overlapping lock held on PostgreSQL.");
+          throw new Error("Lock acquisition failed: Scheduler execution is already in progress.");
+        }
+        lockType = "POSTGRES";
+      }
 
-    if (transitions.opened.length > 0 || transitions.closed.length > 0 || escalationsCount > 0) {
-      await CacheService.clearAll();
+      console.log(`[Scheduler] Tick started at ${new Date().toISOString()} (Lock type: ${lockType})`);
+
+      const transitions = await this.checkAndTransitionWindows();
+      const { sentCount: remindersSent } = await this.sendAutomaticReminders();
+      const { escalatedCount: escalationsCount } = await this.escalateDelays();
+
+      // ── Data retention cleanup (non-blocking) ──
+      const cleanup = await this.cleanupOldRecords();
+
+      console.log(`[Scheduler] Tick finished: Opened: ${transitions.opened.length}, Closed: ${transitions.closed.length}, Reminders: ${remindersSent}, Escalations: ${escalationsCount}, Cleanup: ${cleanup.auditLogsDeleted} logs, ${cleanup.notificationsDeleted} notifications`);
+
+      if (transitions.opened.length > 0 || transitions.closed.length > 0 || escalationsCount > 0) {
+        await CacheService.invalidateAnalytics("2026");
+      }
+
+      return {
+        timestamp: new Date().toISOString(),
+        transitions,
+        remindersSent,
+        escalationsCount
+      };
+    } finally {
+      if (lockType === "REDIS") {
+        await CacheService.releaseLock("scheduler");
+        console.log("[Scheduler] Released Redis scheduler lock.");
+      } else if (lockType === "POSTGRES") {
+        await db.$queryRawUnsafe("SELECT pg_advisory_unlock(889988);");
+        console.log("[Scheduler] Released PostgreSQL advisory scheduler lock.");
+      }
+    }
+  }
+
+  /**
+   * Cleans up old audit logs (>2 years) and read notifications (>90 days)
+   * to prevent unbounded table growth.
+   */
+  private static async cleanupOldRecords(): Promise<{
+    auditLogsDeleted: number;
+    notificationsDeleted: number;
+  }> {
+    let auditLogsDeleted = 0;
+    let notificationsDeleted = 0;
+
+    try {
+      const auditResult = await db.$executeRaw`
+        DELETE FROM "AuditLog"
+        WHERE "timestamp" < NOW() - INTERVAL '2 years'
+      `;
+      auditLogsDeleted = auditResult;
+
+      const notifResult = await db.$executeRaw`
+        DELETE FROM "Notification"
+        WHERE "isRead" = true
+        AND "createdAt" < NOW() - INTERVAL '90 days'
+      `;
+      notificationsDeleted = notifResult;
+
+      if (auditLogsDeleted > 0 || notificationsDeleted > 0) {
+        console.log(`[Scheduler] Cleanup: Removed ${auditLogsDeleted} old audit logs and ${notificationsDeleted} read notifications.`);
+      }
+    } catch (error) {
+      // Non-blocking: log but don't fail the scheduler tick
+      console.error("[Scheduler] Cleanup error (non-blocking):", error);
     }
 
-    return {
-      timestamp: new Date().toISOString(),
-      transitions,
-      remindersSent,
-      escalationsCount
-    };
+    return { auditLogsDeleted, notificationsDeleted };
   }
 }

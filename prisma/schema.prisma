@@ -104,6 +104,7 @@ model CheckIn {
   id              String            @id @default(cuid())
   userId          String
   user            User              @relation(fields: [userId], references: [id])
+  cycleId         String            // E.g. "2024"
   quarter         Int
   notes           String?
   managerComment  String?
@@ -112,6 +113,7 @@ model CheckIn {
   updatedAt       DateTime          @updatedAt
 
   @@index([userId])
+  @@unique([userId, cycleId, quarter])
 }
 
 model AuditLog {

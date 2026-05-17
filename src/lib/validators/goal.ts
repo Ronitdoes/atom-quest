@@ -17,6 +17,25 @@ export const goalSchema = z.object({
 
 export type GoalFormData = z.infer<typeof goalSchema>;
 
+export const draftGoalSheetSchema = z.object({
+  goals: z.array(goalSchema)
+    .max(8, "Maximum 8 goals allowed"),
+});
+
+export const managerGoalUpdateSchema = z.object({
+  id: z.string().min(1, "Goal ID is required"),
+  target: z.number().min(0, "Target must be at least 0"),
+  weightage: z.number()
+    .min(10, "Weightage must be at least 10%")
+    .max(100, "Weightage cannot exceed 100%"),
+});
+
+export const managerGoalUpdatesSchema = z.array(managerGoalUpdateSchema)
+  .min(1, "At least one goal update is required")
+  .max(8, "Maximum 8 goals allowed");
+
+export type ManagerGoalUpdateData = z.infer<typeof managerGoalUpdateSchema>;
+
 export const goalSheetSchema = z.object({
   goals: z.array(goalSchema)
     .min(1, "At least one goal is required")

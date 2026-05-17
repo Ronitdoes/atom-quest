@@ -2,6 +2,7 @@ import { db } from "@/lib/db/db";
 import { checkInSchema } from "@/lib/validators/check-in";
 import { GoalStatus } from "@/generated/prisma";
 import { CacheService } from "./cache-service";
+import { BadRequestError, ForbiddenError, NotFoundError } from "@/lib/security/api";
 
 export class CheckInService {
   /**
@@ -44,6 +45,7 @@ export class CheckInService {
     const checkIn = await db.checkIn.findFirst({
       where: {
         userId,
+        cycleId,
         quarter,
       },
     });
@@ -95,17 +97,27 @@ export class CheckInService {
       where: {
         userId_cycleId: { userId, cycleId },
       },
+      include: {
+        goals: {
+          select: { id: true },
+        },
+      },
     });
 
     if (!sheet || sheet.status !== GoalStatus.APPROVED) {
-      throw new Error("Goal sheet must be APPROVED to submit check-ins.");
+      throw new BadRequestError("Goal sheet must be APPROVED to submit check-ins.");
+    }
+
+    const allowedGoalIds = new Set(sheet.goals.map((goal) => goal.id));
+    if (validated.achievements.some((achievement) => !allowedGoalIds.has(achievement.goalId))) {
+      throw new ForbiddenError("One or more achievements do not belong to this user's approved sheet.");
     }
 
     // 4. Perform database transaction
     const result = await db.$transaction(async (tx) => {
       // Find or create CheckIn
       const existingCheckIn = await tx.checkIn.findFirst({
-        where: { userId, quarter },
+        where: { userId, cycleId, quarter },
       });
 
       let checkIn;
@@ -120,6 +132,7 @@ export class CheckInService {
         checkIn = await tx.checkIn.create({
           data: {
             userId,
+            cycleId,
             quarter,
             notes: validated.notes || null,
           },
@@ -186,7 +199,7 @@ export class CheckInService {
       return checkIn;
     });
 
-    await CacheService.clearAll();
+    await CacheService.invalidateAnalytics(cycleId, quarter);
     return result;
   }
 
@@ -214,7 +227,7 @@ export class CheckInService {
       },
     });
 
-    if (!checkIn) throw new Error("Check-in not found.");
+    if (!checkIn) throw new NotFoundError("Check-in not found.");
 
     // Check manager authorization
     if (checkIn.user.managerId !== managerId) {
@@ -224,7 +237,7 @@ export class CheckInService {
         select: { role: true },
       });
       if (managerUser?.role !== "ADMIN") {
-        throw new Error("Unauthorized: You are not authorized to review this check-in.");
+        throw new ForbiddenError("You are not authorized to review this check-in.");
       }
     }
 
@@ -260,7 +273,7 @@ export class CheckInService {
       return updatedCheckIn;
     });
 
-    await CacheService.clearAll();
+    await CacheService.invalidateAnalytics(checkIn.cycleId, checkIn.quarter);
     return result;
   }
 }

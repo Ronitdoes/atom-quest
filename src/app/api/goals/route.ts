@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
 import { GoalService } from "@/lib/services/goal-service";
+import { assertRateLimit } from "@/lib/security/rate-limit";
 
 export async function GET(req: Request) {
   try {
@@ -10,6 +11,7 @@ export async function GET(req: Request) {
     if (!session || !session.user) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
+    await assertRateLimit(`goals:get:${session.user.id}`, 60, 60);
 
     const { searchParams } = new URL(req.url);
     const cycleId = searchParams.get("cycleId");

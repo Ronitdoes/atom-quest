@@ -54,8 +54,9 @@ export function SharedGoalManager({ teamMembers }: { teamMembers: TeamMember[] }
         const errorText = await response.text();
         throw new Error(`Failed to load shared goals: ${response.status} ${errorText}`);
       }
-      const data = await response.json();
-      setSharedGoals(data);
+      const result = await response.json();
+      const goals = Array.isArray(result) ? result : result?.data ?? [];
+      setSharedGoals(goals);
     } catch (error: any) {
       console.error(error);
       toast.error(error.message);

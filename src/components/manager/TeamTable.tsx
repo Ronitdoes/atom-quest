@@ -64,7 +64,7 @@ export function TeamTable({ members }: TeamTableProps) {
                 </TableCell>
                 <TableCell className="text-right">
                   <Link 
-                    href={`/manager/approvals?userId=${member.id}&cycleId=2024`}
+                    href={`/manager/approvals?userId=${member.id}&cycleId=2026`}
                     className={cn(
                       buttonVariants({ variant: "ghost", size: "sm" }),
                       "text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800",

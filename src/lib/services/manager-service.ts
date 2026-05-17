@@ -1,12 +1,14 @@
 import { db } from "@/lib/db/db";
-import { GoalStatus } from "@prisma/client";
+import { GoalStatus, Role } from "@prisma/client";
 import { CacheService } from "./cache-service";
+import { BadRequestError, ForbiddenError, NotFoundError } from "@/lib/security/api";
+import { managerGoalUpdatesSchema } from "@/lib/validators/goal";
 
 export class ManagerService {
   /**
    * Fetches summary statistics for a manager's team
    */
-  static async getTeamStats(managerId: string, cycleId: string = "2024") {
+  static async getTeamStats(managerId: string, cycleId: string = "2026") {
     const subordinates = await db.user.findMany({
       where: { managerId },
       include: {
@@ -45,7 +47,7 @@ export class ManagerService {
   /**
    * Fetches all subordinates with their current goal sheet status
    */
-  static async getTeamMembers(managerId: string, cycleId: string = "2024") {
+  static async getTeamMembers(managerId: string, cycleId: string = "2026") {
     const members = await db.user.findMany({
       where: { managerId },
       include: {
@@ -76,7 +78,7 @@ export class ManagerService {
   /**
    * Fetches a specific goal sheet for approval review
    */
-  static async getGoalSheetForApproval(userId: string, cycleId: string) {
+  static async getGoalSheetForApproval(userId: string, cycleId: string, managerId: string, actorRole?: string) {
     const sheet = await db.goalSheet.findUnique({
       where: {
         userId_cycleId: { userId, cycleId },
@@ -87,24 +89,29 @@ export class ManagerService {
             id: true,
             name: true,
             email: true,
+            managerId: true,
           }
         },
         goals: true,
       },
     });
 
+    if (!sheet) return null;
+    this.assertManagerOwnsUser(sheet.user.managerId, managerId, actorRole);
     return sheet;
   }
 
   /**
    * Transitions a goal sheet to UNDER_REVIEW status
    */
-  static async startReview(sheetId: string, managerId: string) {
+  static async startReview(sheetId: string, managerId: string, actorRole?: string) {
     const sheet = await db.goalSheet.findUnique({
-      where: { id: sheetId }
+      where: { id: sheetId },
+      include: { user: { select: { managerId: true } } }
     });
 
-    if (!sheet) throw new Error("Goal sheet not found.");
+    if (!sheet) throw new NotFoundError("Goal sheet not found.");
+    this.assertManagerOwnsUser(sheet.user.managerId, managerId, actorRole);
     
     // Only transition if currently SUBMITTED
     if (sheet.status !== GoalStatus.SUBMITTED) {
@@ -132,23 +139,28 @@ export class ManagerService {
 
       return updatedSheet;
     });
-    await CacheService.clearAll();
+    await CacheService.invalidateAnalytics(sheet.cycleId);
     return result;
   }
 
   /**
    * Approves a goal sheet
    */
-  static async approveGoalSheet(sheetId: string, managerId: string) {
+  static async approveGoalSheet(sheetId: string, managerId: string, actorRole?: string) {
     const sheet = await db.goalSheet.findUnique({
       where: { id: sheetId },
       include: { user: true }
     });
 
-    if (!sheet) throw new Error("Goal sheet not found.");
+    if (!sheet) throw new NotFoundError("Goal sheet not found.");
+    this.assertManagerOwnsUser(sheet.user.managerId, managerId, actorRole);
 
     if (sheet.status === GoalStatus.APPROVED) {
       return sheet; // Already approved
+    }
+
+    if (sheet.status !== GoalStatus.SUBMITTED && sheet.status !== GoalStatus.UNDER_REVIEW) {
+      throw new BadRequestError("Only submitted or under-review goal sheets can be approved.");
     }
 
     const result = await db.$transaction(async (tx) => {
@@ -185,23 +197,28 @@ export class ManagerService {
       return updatedSheet;
     });
     
-    await CacheService.clearAll();
+    await CacheService.invalidateAnalytics(sheet.cycleId);
     return result;
   }
 
   /**
    * Rejects a goal sheet with comments
    */
-  static async rejectGoalSheet(sheetId: string, managerId: string, comment: string) {
+  static async rejectGoalSheet(sheetId: string, managerId: string, comment: string, actorRole?: string) {
     const sheet = await db.goalSheet.findUnique({
       where: { id: sheetId },
       include: { user: true }
     });
 
-    if (!sheet) throw new Error("Goal sheet not found.");
+    if (!sheet) throw new NotFoundError("Goal sheet not found.");
+    this.assertManagerOwnsUser(sheet.user.managerId, managerId, actorRole);
 
     if (sheet.status === GoalStatus.APPROVED) {
-      throw new Error("Cannot reject an already approved goal sheet. Contact admin to unlock.");
+      throw new BadRequestError("Cannot reject an already approved goal sheet. Contact admin to unlock.");
+    }
+
+    if (sheet.status !== GoalStatus.SUBMITTED && sheet.status !== GoalStatus.UNDER_REVIEW) {
+      throw new BadRequestError("Only submitted or under-review goal sheets can be rejected.");
     }
 
     const result = await db.$transaction(async (tx) => {
@@ -238,26 +255,49 @@ export class ManagerService {
       return updatedSheet;
     });
 
-    await CacheService.clearAll();
+    await CacheService.invalidateAnalytics(sheet.cycleId);
     return result;
   }
 
   /**
    * Updates goal targets or weightage by manager
    */
-  static async updateGoalsByManager(sheetId: string, managerId: string, goalsData: any[]) {
+  static async updateGoalsByManager(sheetId: string, managerId: string, goalsData: unknown, actorRole?: string) {
+    const validatedGoals = managerGoalUpdatesSchema.parse(goalsData);
     const existingSheet = await db.goalSheet.findUnique({
       where: { id: sheetId },
-      select: { status: true }
+      include: {
+        user: {
+          select: { managerId: true },
+        },
+        goals: {
+          select: { id: true },
+        },
+      },
     });
 
-    if (existingSheet?.status === GoalStatus.APPROVED) {
-      throw new Error("Cannot modify an approved goal sheet.");
+    if (!existingSheet) {
+      throw new NotFoundError("Goal sheet not found.");
+    }
+
+    this.assertManagerOwnsUser(existingSheet.user.managerId, managerId, actorRole);
+
+    if (existingSheet.status === GoalStatus.APPROVED) {
+      throw new BadRequestError("Cannot modify an approved goal sheet.");
+    }
+
+    if (existingSheet.status !== GoalStatus.SUBMITTED && existingSheet.status !== GoalStatus.UNDER_REVIEW) {
+      throw new BadRequestError("Only submitted or under-review goal sheets can be edited by a manager.");
+    }
+
+    const sheetGoalIds = new Set(existingSheet.goals.map((goal) => goal.id));
+    if (validatedGoals.some((goal) => !sheetGoalIds.has(goal.id))) {
+      throw new ForbiddenError("One or more goals do not belong to this sheet.");
     }
 
     const result = await db.$transaction(async (tx) => {
       // 1. Update each individual goal
-      for (const goalData of goalsData) {
+      for (const goalData of validatedGoals) {
         await tx.goal.update({
           where: { id: goalData.id },
           data: {
@@ -287,21 +327,28 @@ export class ManagerService {
           action: "GOAL_SHEET_EDIT_BY_MANAGER",
           entityType: "GoalSheet",
           entityId: sheetId,
-          newValue: JSON.parse(JSON.stringify(goalsData)),
+          newValue: JSON.parse(JSON.stringify(validatedGoals)),
         },
       });
 
       return true;
     });
 
-    await CacheService.clearAll();
+    await CacheService.invalidateAnalytics(existingSheet.cycleId);
     return result;
+  }
+
+  private static assertManagerOwnsUser(userManagerId: string | null, actorId: string, actorRole?: string) {
+    if (actorRole === Role.ADMIN) return; // Admin can manage any employee
+    if (userManagerId !== actorId) {
+      throw new ForbiddenError("You are not authorized to manage this employee.");
+    }
   }
 
   /**
    * Fetches subordinate check-in statuses across all 4 quarters
    */
-  static async getTeamCheckInStatus(managerId: string, cycleId: string = "2024") {
+  static async getTeamCheckInStatus(managerId: string, cycleId: string = "2026") {
     const members = await db.user.findMany({
       where: { managerId },
       include: {
@@ -310,6 +357,7 @@ export class ManagerService {
           select: { id: true }
         },
         checkIns: {
+          where: { cycleId },
           select: {
             id: true,
             quarter: true,

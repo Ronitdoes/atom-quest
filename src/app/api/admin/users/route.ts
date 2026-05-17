@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
 import { AdminService } from "@/lib/services/admin-service";
 import { Role } from "@prisma/client";
+import { safeErrorResponse } from "@/lib/security/api";
+import { assertRateLimit } from "@/lib/security/rate-limit";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -12,11 +14,18 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const users = await AdminService.getAllUsers();
-    return NextResponse.json(users);
-  } catch (error: any) {
+    await assertRateLimit(`admin:users:get:${session.user.id}`, 30, 60);
+    const searchParams = req.nextUrl.searchParams;
+    const page = parseInt(searchParams.get("page") || "1", 10);
+    const limit = parseInt(searchParams.get("limit") || "10", 10);
+    const search = searchParams.get("search") || "";
+    const role = searchParams.get("role") || "ALL";
+
+    const result = await AdminService.getAllUsers({ page, limit, search, role });
+    return NextResponse.json(result);
+  } catch (error) {
     console.error("Error fetching users for admin:", error);
-    return NextResponse.json({ message: error.message || "Internal server error" }, { status: 500 });
+    return safeErrorResponse(error);
   }
 }
 
@@ -28,6 +37,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   try {
+    await assertRateLimit(`admin:users:${session.user.id}`, 20, 60);
     const { userId, role, managerId } = await req.json();
 
     if (!userId || !role) {
@@ -47,8 +57,8 @@ export async function PATCH(req: NextRequest) {
     );
 
     return NextResponse.json(updatedUser);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error updating user for admin:", error);
-    return NextResponse.json({ message: error.message || "Internal server error" }, { status: 500 });
+    return safeErrorResponse(error);
   }
 }

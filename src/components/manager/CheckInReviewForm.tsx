@@ -142,7 +142,7 @@ export function CheckInReviewForm({
           Back to Dashboard
         </Link>
         <span className="text-xs text-neutral-400 dark:text-neutral-500">
-          Cycle: 2024 • Quarter {quarter} Review
+          Cycle: 2026 • Quarter {quarter} Review
         </span>
       </div>
 

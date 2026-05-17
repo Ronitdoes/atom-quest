@@ -3,7 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
 import { CheckInService } from "@/lib/services/check-in-service";
 import { db } from "@/lib/db/db";
-import { z } from "zod";
+import { safeErrorResponse } from "@/lib/security/api";
+import { assertRateLimit } from "@/lib/security/rate-limit";
 
 export async function GET(req: Request) {
   try {
@@ -12,6 +13,7 @@ export async function GET(req: Request) {
     if (!session || !session.user) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
+    await assertRateLimit(`checkins:get:${session.user.id}`, 60, 60);
 
     const { searchParams } = new URL(req.url);
     const cycleId = searchParams.get("cycleId");
@@ -65,6 +67,7 @@ export async function POST(req: Request) {
     if (!session || !session.user) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
+    await assertRateLimit(`check-ins:submit:${session.user.id}`, 20, 60);
 
     const body = await req.json();
     const { cycleId, quarter, notes, achievements } = body;
@@ -78,16 +81,8 @@ export async function POST(req: Request) {
     );
 
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error) {
     console.error("[CHECK_INS_POST]", error);
-    
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(error.flatten(), { status: 400 });
-    }
-
-    return NextResponse.json(
-      { message: error.message || "Internal Server Error" },
-      { status: error.message?.includes("must be APPROVED") ? 400 : 500 }
-    );
+    return safeErrorResponse(error, "Internal Server Error");
   }
 }

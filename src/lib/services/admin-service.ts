@@ -71,7 +71,7 @@ export class AdminService {
 
       return updatedSheet;
     });
-    await CacheService.clearAll();
+    await CacheService.invalidateAnalytics(sheet.cycleId);
     return result;
   }
 
@@ -197,7 +197,7 @@ export class AdminService {
           user: {
             include: {
               checkIns: {
-                where: { quarter: qNum },
+                where: { cycleId, quarter: qNum },
               },
             },
           },
@@ -241,6 +241,7 @@ export class AdminService {
       const checkIns = await db.checkIn.findMany({
         where: {
           quarter: qNum,
+          cycleId,
           managerComment: null,
           user: {
             goalSheets: {
@@ -302,7 +303,7 @@ export class AdminService {
   /**
    * Fetches all goal sheets for admin overview
    */
-  static async getAllGoalSheets(cycleId: string = "2024") {
+  static async getAllGoalSheets(cycleId: string = "2026") {
     return await db.goalSheet.findMany({
       where: { cycleId },
       include: {
@@ -321,37 +322,82 @@ export class AdminService {
   }
 
   /**
-   * Fetches all users for administrative user management
+   * Fetches paginated and filtered users for administrative user management
    */
-  static async getAllUsers() {
-    return await db.user.findMany({
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        managerId: true,
-        manager: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          }
+  static async getAllUsers(params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    role?: string;
+  }) {
+    const page = params?.page ? Number(params.page) : 1;
+    const limit = params?.limit ? Number(params.limit) : 10;
+    const search = params?.search || "";
+    const role = params?.role || "ALL";
+
+    const skip = (page - 1) * limit;
+
+    const whereClause: any = {};
+
+    if (search.trim() !== "") {
+      whereClause.OR = [
+        { name: { contains: search, mode: "insensitive" } },
+        { email: { contains: search, mode: "insensitive" } },
+      ];
+    }
+
+    if (role !== "ALL") {
+      whereClause.role = role;
+    }
+
+    const [users, totalCount] = await Promise.all([
+      db.user.findMany({
+        where: whereClause,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          managerId: true,
+          manager: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            }
+          },
+          goalSheets: {
+            select: {
+              id: true,
+              cycleId: true,
+              status: true,
+              updatedAt: true,
+            }
+          },
+          createdAt: true,
         },
-        goalSheets: {
-          select: {
-            id: true,
-            cycleId: true,
-            status: true,
-            updatedAt: true,
-          }
+        orderBy: {
+          name: 'asc',
         },
-        createdAt: true,
-      },
-      orderBy: {
-        name: 'asc',
+        skip,
+        take: limit,
+      }),
+      db.user.count({
+        where: whereClause,
+      }),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return {
+      users,
+      pagination: {
+        totalCount,
+        totalPages,
+        currentPage: page,
+        limit,
       }
-    });
+    };
   }
 
   /**
@@ -391,6 +437,17 @@ export class AdminService {
 
     if (managerId && userId === managerId) {
       throw new Error("A user cannot report to themselves.");
+    }
+
+    if (managerId) {
+      const manager = await db.user.findUnique({
+        where: { id: managerId },
+        select: { role: true },
+      });
+
+      if (!manager || (manager.role !== Role.MANAGER && manager.role !== Role.ADMIN)) {
+        throw new Error("Selected manager must have manager or administrator access.");
+      }
     }
 
     // Get current user details for audit logs
@@ -442,7 +499,7 @@ export class AdminService {
 
       return updatedUser;
     });
-    await CacheService.clearAll();
+    await CacheService.invalidateAnalytics("2026");
     return result;
   }
 
@@ -473,23 +530,37 @@ export class AdminService {
   /**
    * Fetches system statistics for tracking completion
    */
-  static async getSystemStats(cycleId: string = "2024") {
+  static async getSystemStats(cycleId: string = "2026") {
     const cacheKey = `admin:stats:${cycleId}`;
-    const cached = await CacheService.get<any>(cacheKey);
+    const cached = await CacheService.get<unknown>(cacheKey);
     if (cached) return cached;
 
-    const totalUsers = await db.user.count();
-    const employeesCount = await db.user.count({ where: { role: Role.EMPLOYEE } });
-    const managersCount = await db.user.count({ where: { role: Role.MANAGER } });
-    const adminsCount = await db.user.count({ where: { role: Role.ADMIN } });
+    // ── Aggregation queries (2 SQL round-trips instead of 10+ Prisma calls) ──
 
-    const goalSheets = await db.goalSheet.findMany({
-      where: { cycleId }
-    });
+    const [userCounts] = await db.$queryRaw<Array<{
+      total: bigint;
+      employees: bigint;
+      managers: bigint;
+      admins: bigint;
+    }>>`
+      SELECT
+        COUNT(*)::bigint AS "total",
+        COUNT(*) FILTER (WHERE role = 'EMPLOYEE')::bigint AS "employees",
+        COUNT(*) FILTER (WHERE role = 'MANAGER')::bigint AS "managers",
+        COUNT(*) FILTER (WHERE role = 'ADMIN')::bigint AS "admins"
+      FROM "User"
+    `;
 
-    const totalSheets = goalSheets.length;
+    const sheetDistRows = await db.$queryRaw<Array<{
+      status: string;
+      count: bigint;
+    }>>`
+      SELECT status, COUNT(*)::bigint AS "count"
+      FROM "GoalSheet"
+      WHERE "cycleId" = ${cycleId}
+      GROUP BY status
+    `;
 
-    // Distribution
     const statusCounts = {
       DRAFT: 0,
       SUBMITTED: 0,
@@ -497,210 +568,144 @@ export class AdminService {
       APPROVED: 0,
       REWORK_REQUIRED: 0,
     };
-
-    goalSheets.forEach(sheet => {
-      if (sheet.status in statusCounts) {
-        statusCounts[sheet.status as keyof typeof statusCounts]++;
+    let totalSheets = 0;
+    sheetDistRows.forEach(row => {
+      const key = row.status as keyof typeof statusCounts;
+      if (key in statusCounts) {
+        statusCounts[key] = Number(row.count);
       }
+      totalSheets += Number(row.count);
     });
 
-    // Submission Rate: count sheets beyond draft
-    const submittedCount = goalSheets.filter(
-      sheet => sheet.status !== GoalStatus.DRAFT
-    ).length;
-
+    const employeesCount = Number(userCounts.employees);
+    const submittedCount = totalSheets - statusCounts.DRAFT;
     const submissionRate = employeesCount > 0 ? (submittedCount / employeesCount) * 100 : 0;
     const approvalRate = employeesCount > 0 ? (statusCounts.APPROVED / employeesCount) * 100 : 0;
 
-    // Quarterly check-ins overview
-    // Find check-ins count per quarter
-    const checkIns = await db.checkIn.findMany({
-      include: {
-        user: {
-          select: { name: true, role: true }
-        }
-      }
-    });
+    // Check-in aggregate per quarter
+    const checkInAgg = await db.$queryRaw<Array<{
+      quarter: number;
+      total: bigint;
+      reviewed: bigint;
+    }>>`
+      SELECT
+        quarter,
+        COUNT(*)::bigint AS "total",
+        COUNT("managerComment")::bigint AS "reviewed"
+      FROM "CheckIn"
+      WHERE "cycleId" = ${cycleId}
+      GROUP BY quarter
+      ORDER BY quarter
+    `;
 
     const checkInStats = [1, 2, 3, 4].map(q => {
-      const qCheckIns = checkIns.filter(c => c.quarter === q);
-      const reviewed = qCheckIns.filter(c => c.managerComment !== null).length;
-      const pending = qCheckIns.length - reviewed;
-
-      return {
-        quarter: q,
-        total: qCheckIns.length,
-        reviewed,
-        pending,
-      };
+      const row = checkInAgg.find(r => r.quarter === q);
+      const total = row ? Number(row.total) : 0;
+      const reviewed = row ? Number(row.reviewed) : 0;
+      return { quarter: q, total, reviewed, pending: total - reviewed };
     });
 
-    // Fetch detailed approval backlog
-    const approvalBacklog = await db.goalSheet.findMany({
-      where: {
-        cycleId,
-        status: {
-          in: [GoalStatus.SUBMITTED, GoalStatus.UNDER_REVIEW]
-        }
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            manager: {
-              select: {
-                id: true,
-                name: true
-              }
-            }
-          }
-        }
-      },
-      orderBy: {
-        updatedAt: 'desc'
-      }
-    });
+    // ── Detail queries (run in parallel) ──
 
-    // Fetch pending check-ins
-    const pendingCheckInsList = await db.checkIn.findMany({
-      where: {
-        managerComment: null
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            manager: {
-              select: {
-                id: true,
-                name: true
-              }
-            }
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-
-    // Fetch completed check-ins
-    const completedCheckInsList = await db.checkIn.findMany({
-      where: {
-        managerComment: {
-          not: null
-        }
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            manager: {
-              select: {
-                id: true,
-                name: true
-              }
-            }
-          }
-        }
-      },
-      orderBy: {
-        updatedAt: 'desc'
-      }
-    });
-
-    // Fetch all employees to calculate department completion rate
-    const employees = await db.user.findMany({
-      where: {
-        role: Role.EMPLOYEE
-      },
-      include: {
-        manager: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        },
-        goalSheets: {
+    const [approvalBacklog, pendingCheckInsList, completedCheckInsList, departmentCompletion] =
+      await Promise.all([
+        // Approval backlog
+        db.goalSheet.findMany({
           where: {
-            cycleId
+            cycleId,
+            status: { in: [GoalStatus.SUBMITTED, GoalStatus.UNDER_REVIEW] },
           },
-          select: {
-            status: true
-          }
-        }
-      }
-    });
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                manager: { select: { id: true, name: true } },
+              },
+            },
+          },
+          orderBy: { updatedAt: "desc" },
+        }),
 
-    // Group employees by manager to compute department completion
-    const departmentMap: Record<string, {
-      managerId: string | null;
-      managerName: string;
-      managerEmail: string;
-      totalEmployees: number;
-      approvedSheets: number;
-      pendingApproval: number;
-      draftOrRework: number;
-    }> = {};
+        // Pending check-ins
+        db.checkIn.findMany({
+          where: { cycleId, managerComment: null },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                manager: { select: { id: true, name: true } },
+              },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+        }),
 
-    employees.forEach(emp => {
-      const managerId = emp.managerId;
-      const key = managerId || "independent";
-      const managerName = emp.manager?.name || "Independent / Other";
-      const managerEmail = emp.manager?.email || "";
+        // Completed check-ins
+        db.checkIn.findMany({
+          where: { cycleId, managerComment: { not: null } },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                manager: { select: { id: true, name: true } },
+              },
+            },
+          },
+          orderBy: { updatedAt: "desc" },
+        }),
 
-      if (!departmentMap[key]) {
-        departmentMap[key] = {
-          managerId,
-          managerName,
-          managerEmail,
-          totalEmployees: 0,
-          approvedSheets: 0,
-          pendingApproval: 0,
-          draftOrRework: 0
-        };
-      }
+        // Department completion (raw SQL for efficiency)
+        db.$queryRaw<Array<{
+          managerId: string | null;
+          managerName: string;
+          managerEmail: string;
+          totalEmployees: bigint;
+          approvedSheets: bigint;
+          pendingApproval: bigint;
+          draftOrRework: bigint;
+        }>>`
+          SELECT
+            m.id AS "managerId",
+            COALESCE(m.name, 'Independent / Other') AS "managerName",
+            COALESCE(m.email, '') AS "managerEmail",
+            COUNT(e.id)::bigint AS "totalEmployees",
+            COUNT(gs.id) FILTER (WHERE gs.status = 'APPROVED')::bigint AS "approvedSheets",
+            COUNT(gs.id) FILTER (WHERE gs.status IN ('SUBMITTED', 'UNDER_REVIEW'))::bigint AS "pendingApproval",
+            (COUNT(e.id) - COUNT(gs.id) FILTER (WHERE gs.status = 'APPROVED') - COUNT(gs.id) FILTER (WHERE gs.status IN ('SUBMITTED', 'UNDER_REVIEW')))::bigint AS "draftOrRework"
+          FROM "User" e
+          LEFT JOIN "User" m ON e."managerId" = m.id
+          LEFT JOIN "GoalSheet" gs ON gs."userId" = e.id AND gs."cycleId" = ${cycleId}
+          WHERE e.role = 'EMPLOYEE'
+          GROUP BY m.id, m.name, m.email
+          ORDER BY COUNT(gs.id) FILTER (WHERE gs.status = 'APPROVED')::float / NULLIF(COUNT(e.id), 0) DESC NULLS LAST
+        `,
+      ]);
 
-      departmentMap[key].totalEmployees++;
-
-      const sheet = emp.goalSheets[0] || null;
-      if (sheet) {
-        if (sheet.status === GoalStatus.APPROVED) {
-          departmentMap[key].approvedSheets++;
-        } else if (sheet.status === GoalStatus.SUBMITTED || sheet.status === GoalStatus.UNDER_REVIEW) {
-          departmentMap[key].pendingApproval++;
-        } else {
-          departmentMap[key].draftOrRework++;
-        }
-      } else {
-        departmentMap[key].draftOrRework++;
-      }
-    });
-
-    const departmentCompletion = Object.values(departmentMap).map(dept => {
-      const completionRate = dept.totalEmployees > 0
-        ? Math.round((dept.approvedSheets / dept.totalEmployees) * 100)
-        : 0;
-
-      return {
-        ...dept,
-        completionRate
-      };
-    }).sort((a, b) => b.completionRate - a.completionRate);
+    const departmentCompletionFormatted = departmentCompletion.map(dept => ({
+      managerId: dept.managerId,
+      managerName: dept.managerName,
+      managerEmail: dept.managerEmail,
+      totalEmployees: Number(dept.totalEmployees),
+      approvedSheets: Number(dept.approvedSheets),
+      pendingApproval: Number(dept.pendingApproval),
+      draftOrRework: Number(dept.draftOrRework),
+      completionRate: Number(dept.totalEmployees) > 0
+        ? Math.round((Number(dept.approvedSheets) / Number(dept.totalEmployees)) * 100)
+        : 0,
+    }));
 
     const result = {
       users: {
-        total: totalUsers,
+        total: Number(userCounts.total),
         employees: employeesCount,
-        managers: managersCount,
-        admins: adminsCount,
+        managers: Number(userCounts.managers),
+        admins: Number(userCounts.admins),
       },
       goalSheets: {
         total: totalSheets,
@@ -712,7 +717,7 @@ export class AdminService {
       pendingCheckIns: pendingCheckInsList,
       completedCheckIns: completedCheckInsList,
       approvalBacklog: approvalBacklog,
-      departmentCompletion: departmentCompletion,
+      departmentCompletion: departmentCompletionFormatted,
     };
 
     await CacheService.set(cacheKey, result);
@@ -722,7 +727,7 @@ export class AdminService {
   /**
    * Fetches goal-level achievements for the active cycle and selected quarter to generate a system-wide report
    */
-  static async getAchievementReport(cycleId: string = "2024", quarter: number = 1) {
+  static async getAchievementReport(cycleId: string = "2026", quarter: number = 1) {
     const goals = await db.goal.findMany({
       where: {
         goalSheet: {
@@ -791,4 +796,3 @@ export class AdminService {
       });
   }
 }
-

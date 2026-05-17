@@ -22,13 +22,13 @@ export default async function ApprovalPage({
 
   const resolvedParams = await searchParams;
   const userId = resolvedParams.userId;
-  const cycleId = resolvedParams.cycleId || "2024";
+  const cycleId = resolvedParams.cycleId || "2026";
 
   if (!userId) {
     redirect("/manager");
   }
 
-  const sheet = await ManagerService.getGoalSheetForApproval(userId, cycleId);
+  const sheet = await ManagerService.getGoalSheetForApproval(userId, cycleId, session.user.id);
 
   if (!sheet) {
     return (

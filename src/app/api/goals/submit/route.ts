@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
 import { GoalService } from "@/lib/services/goal-service";
-import { z } from "zod";
+import { safeErrorResponse } from "@/lib/security/api";
+import { assertRateLimit } from "@/lib/security/rate-limit";
 
 export async function POST(req: Request) {
   try {
@@ -11,6 +12,7 @@ export async function POST(req: Request) {
     if (!session || !session.user) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
+    await assertRateLimit(`goals:submit:${session.user.id}`, 10, 60);
 
     const body = await req.json();
     const { goals, cycleId } = body;
@@ -26,16 +28,8 @@ export async function POST(req: Request) {
     );
 
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error) {
     console.error("[GOALS_SUBMIT]", error);
-    
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(error.flatten(), { status: 400 });
-    }
-
-    return NextResponse.json(
-      { message: error.message || "Internal Server Error" },
-      { status: error.message?.includes("approved") ? 400 : 500 }
-    );
+    return safeErrorResponse(error, "Internal Server Error");
   }
 }
