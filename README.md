@@ -112,7 +112,7 @@ Built with **Next.js 16**, **Prisma**, **PostgreSQL**, and **Upstash Redis**.
 | **ORM** | Prisma 7 with PgBouncer adapter |
 | **Database** | PostgreSQL (Supabase) |
 | **Cache / Rate Limit** | Upstash Redis (serverless) |
-| **Scheduling** | node-cron (standalone daemon) |
+| **Scheduling** | node-cron (standalone daemon),vercel cron jobs |
 | **Icons** | Lucide React |
 | **Notifications** | Sonner toast + in-app notification system |
 
