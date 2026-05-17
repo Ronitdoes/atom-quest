@@ -72,26 +72,26 @@ Built with **Next.js 16**, **Prisma**, **PostgreSQL**, and **Upstash Redis**.
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                    Frontend (Next.js)                │
+│                    Frontend (Next.js)               │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
-│  │ Employee │  │ Manager  │  │  Admin Dashboard  │   │
-│  │Dashboard │  │Dashboard │  │  (Stats/Users/    │   │
-│  │ (Goals)  │  │(Approvals│  │   Analytics)      │   │
+│  │ Employee │  │ Manager  │  │  Admin Dashboard │   │
+│  │Dashboard │  │Dashboard │  │  (Stats/Users/   │   │
+│  │ (Goals)  │  │(Approvals│  │   Analytics)     │   │
 │  └──────────┘  │ Reviews) │  └──────────────────┘   │
-│                └──────────┘                          │
+│                └──────────┘                         │
 ├─────────────────────────────────────────────────────┤
-│             API Routes (Next.js App Router)          │
+│             API Routes (Next.js App Router)         │
 │  ┌──────────────────────────────────────────────┐   │
 │  │  Rate Limiting · Auth · Input Validation     │   │
 │  └──────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────┤
-│                  Service Layer                       │
+│                  Service Layer                      │
 │  GoalService · ManagerService · AdminService        │
 │  AnalyticsService · CheckInService · CacheService   │
 │  SchedulerService · NotificationService             │
 │  SharedGoalService · ProgressCalculator             │
 ├──────────────────────┬──────────────────────────────┤
-│    PostgreSQL        │        Upstash Redis          │
+│    PostgreSQL        │        Upstash Redis         │
 │  (via Prisma ORM +   │  (Rate limiting, caching,    │
 │   PgBouncer pooling) │   distributed locking)       │
 └──────────────────────┴──────────────────────────────┘
