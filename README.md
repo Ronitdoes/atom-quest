@@ -348,7 +348,9 @@ DRAFT ──→ SUBMITTED ──→ UNDER_REVIEW ──→ APPROVED
 
 ## Background Scheduler
 
-The scheduler runs as a separate process via `npm run scheduler` (using `node-cron`, hourly).
+The scheduler can be run in two ways:
+1. **Serverless Vercel Cron Jobs (Recommended)** — Configured natively via `vercel.json`. It triggers the secure `/api/admin/scheduler` endpoint hourly using serverless compute.
+2. **Standalone Daemon Process** — Runs as a persistent process via `npm run scheduler` (using `node-cron`, hourly).
 
 Each tick performs:
 1. **Window transitions** — Opens `UPCOMING` windows whose `startDate` has passed; closes `OPEN` windows whose `endDate` has passed.
@@ -395,10 +397,11 @@ Each tick performs:
 
 ### Scheduler Deployment
 
-The scheduler daemon must run separately (not inside Vercel serverless):
+AtomQuest supports fully serverless background execution on Vercel:
 
-- **Cron service** (e.g., Railway, Render, fly.io) — run `npm run scheduler`
-- **External cron** (e.g., Upstash QStash, EasyCron) — POST to `/api/admin/scheduler` with the `CRON_SECRET` header on an hourly schedule
+- **Vercel Cron Jobs (Recommended)** — Configured natively by `vercel.json` in the repository root. The app automatically triggers `/api/admin/scheduler` hourly. In the Vercel project dashboard, simply ensure the `CRON_SECRET` environment variable is set (Vercel automatically attaches this value as a Bearer token in the `Authorization` header).
+- **Standalone Daemon** — For VPS or persistent environments (Railway, Render, Fly.io), deploy a background container running `npm run scheduler`.
+- **External Webhooks** — Securely POST or GET to `/api/admin/scheduler` with the header `Authorization: Bearer <CRON_SECRET>` from any external cron provider (e.g. Upstash QStash).
 
 ---
 

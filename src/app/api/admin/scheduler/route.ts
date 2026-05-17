@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth/auth-options";
 import { SchedulerService } from "@/lib/services/scheduler-service";
 import { safeErrorResponse } from "@/lib/security/api";
 
-export async function POST(req: NextRequest) {
+async function handleSchedulerRequest(req: NextRequest) {
   // 1. Authenticate via Session (Admin in UI) or API Token (Stateless Cron Machine)
   let isAuthenticated = false;
 
@@ -47,4 +47,10 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function POST(req: NextRequest) {
+  return handleSchedulerRequest(req);
+}
 
+export async function GET(req: NextRequest) {
+  return handleSchedulerRequest(req);
+}
