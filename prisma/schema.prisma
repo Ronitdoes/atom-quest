@@ -1,0 +1,188 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  EMPLOYEE
+  MANAGER
+  ADMIN
+}
+
+enum GoalStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REWORK_REQUIRED
+}
+
+enum UomType {
+  NUMERIC_MIN
+  NUMERIC_MAX
+  TIMELINE
+  ZERO_BASED
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  password      String
+  role          Role      @default(EMPLOYEE)
+  managerId     String?
+  manager       User?     @relation("TeamHierarchy", fields: [managerId], references: [id])
+  subordinates  User[]    @relation("TeamHierarchy")
+  goalSheets    GoalSheet[]
+  auditLogs     AuditLog[]
+  checkIns      CheckIn[]
+  notifications Notification[]
+  createdSharedGoals  SharedGoal[] @relation("SharedGoalCreator")
+  sharedGoalAssignments SharedGoalAssignment[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([managerId])
+}
+
+model GoalSheet {
+  id              String      @id @default(cuid())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+  cycleId         String      // E.g. "2024"
+  status          GoalStatus  @default(DRAFT)
+  managerComment  String?
+  goals           Goal[]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([userId, cycleId])
+}
+
+model Goal {
+  id              String      @id @default(cuid())
+  goalSheetId     String
+  goalSheet       GoalSheet   @relation(fields: [goalSheetId], references: [id])
+  thrustArea      String
+  title           String
+  description     String?
+  uomType         UomType
+  target          Float
+  weightage       Int         // Percentage 10-100
+  achievements    GoalAchievement[]
+  sharedGoalId    String?
+  sharedGoal      SharedGoal? @relation(fields: [sharedGoalId], references: [id])
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([goalSheetId])
+  @@index([sharedGoalId])
+}
+
+model GoalAchievement {
+  id              String    @id @default(cuid())
+  goalId          String
+  goal            Goal      @relation(fields: [goalId], references: [id])
+  quarter         Int       // 1, 2, 3, 4
+  value           Float
+  status          String    // Not Started, On Track, Completed
+  notes           String?
+  checkInId       String?
+  checkIn         CheckIn?  @relation(fields: [checkInId], references: [id])
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([checkInId])
+  @@unique([goalId, quarter])
+}
+
+model CheckIn {
+  id              String            @id @default(cuid())
+  userId          String
+  user            User              @relation(fields: [userId], references: [id])
+  quarter         Int
+  notes           String?
+  managerComment  String?
+  achievements    GoalAchievement[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  action      String    // E.g. "GOAL_CREATE", "GOAL_APPROVE"
+  entityType  String    // E.g. "GOAL", "GOAL_SHEET"
+  entityId    String
+  oldValue    Json?
+  newValue    Json?
+  timestamp   DateTime  @default(now())
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([timestamp])
+}
+
+model Notification {
+  id          String    @id @default(cuid())
+  userId      String    // Recipient
+  user        User      @relation(fields: [userId], references: [id])
+  title       String
+  message     String
+  type        String    // E.g. "GOAL_SUBMITTED", "GOAL_APPROVED"
+  isRead      Boolean   @default(false)
+  link        String?   // Optional link to redirect
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, isRead])
+}
+
+model SharedGoal {
+  id              String      @id @default(cuid())
+  creatorId       String
+  creator         User        @relation("SharedGoalCreator", fields: [creatorId], references: [id])
+  thrustArea      String
+  title           String
+  description     String?
+  uomType         UomType
+  target          Float
+  assignments     SharedGoalAssignment[]
+  linkedGoals     Goal[]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([creatorId])
+}
+
+model SharedGoalAssignment {
+  id              String      @id @default(cuid())
+  sharedGoalId    String
+  sharedGoal      SharedGoal  @relation(fields: [sharedGoalId], references: [id])
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([userId])
+  @@unique([sharedGoalId, userId])
+}
+
+model CycleWindow {
+  id         String   @id @default(cuid())
+  cycleId    String   // E.g. "2024"
+  quarter    Int      // 1, 2, 3, 4
+  startDate  DateTime
+  endDate    DateTime
+  status     String   // "UPCOMING", "OPEN", "CLOSED"
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([cycleId, quarter])
+}
