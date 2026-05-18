@@ -12,15 +12,19 @@ if (!process.env.DATABASE_URL) {
 
 const connectionString = process.env.DATABASE_URL;
 
-// Supabase requires SSL for external connections (e.g. Vercel serverless)
-const isProduction = process.env.NODE_ENV === "production";
+// Always enable SSL for Supabase (external) connections
+// Detects Supabase host or Vercel environment to activate SSL
+const needsSsl =
+  connectionString.includes("supabase.co") ||
+  connectionString.includes("pooler.supabase.com") ||
+  !!process.env.VERCEL;
 
 const pool = new Pool({
   connectionString,
   max: Number(process.env.DATABASE_POOL_MAX ?? 5),
   idleTimeoutMillis: Number(process.env.DATABASE_POOL_IDLE_TIMEOUT_MS ?? 30_000),
   connectionTimeoutMillis: Number(process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS ?? 5_000),
-  ssl: isProduction ? { rejectUnauthorized: false } : undefined,
+  ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
 });
 const adapter = new PrismaPg(pool);
 
