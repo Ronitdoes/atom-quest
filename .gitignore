@@ -46,3 +46,9 @@ next-env.d.ts
 .agents/
 /scratch/
 skills-lock.json
+
+# project trackers & guides
+PHILOSOPHY.md
+progresstracker.md
+goal_tracking_portal_ai_build_guide_md.md
+
