@@ -1,6 +1,6 @@
 import { db } from "@/lib/db/db";
 import { checkInSchema } from "@/lib/validators/check-in";
-import { GoalStatus } from "@/generated/prisma";
+import { GoalStatus } from "@prisma/client";
 import { CacheService } from "./cache-service";
 import { BadRequestError, ForbiddenError, NotFoundError } from "@/lib/security/api";
 

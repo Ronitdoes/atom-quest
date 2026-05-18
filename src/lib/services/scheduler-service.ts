@@ -1,5 +1,5 @@
 import { db } from "@/lib/db/db";
-import { GoalStatus, Role } from "@/generated/prisma";
+import { GoalStatus, Role } from "@prisma/client";
 import { CacheService } from "./cache-service";
 
 export class SchedulerService {
