@@ -29,6 +29,7 @@ import { useSession } from "next-auth/react";
 interface GoalSheetEditorProps {
   initialGoals?: GoalFormData[];
   status?: string;
+  managerComment?: string | null;
   onSaveDraft: (goals: GoalFormData[]) => Promise<void>;
   onSubmit: (goals: GoalFormData[]) => Promise<void>;
   isLoading?: boolean;
@@ -37,11 +38,17 @@ interface GoalSheetEditorProps {
 export function GoalSheetEditor({
   initialGoals = [],
   status = "DRAFT",
+  managerComment = null,
   onSaveDraft,
   onSubmit,
   isLoading = false,
 }: GoalSheetEditorProps) {
-  const [goals, setGoals] = useState<GoalFormData[]>(initialGoals);
+  const [goals, setGoals] = useState<GoalFormData[]>(() =>
+    initialGoals.map(g => ({
+      ...g,
+      description: g.description || "",
+    }))
+  );
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -71,44 +78,18 @@ export function GoalSheetEditor({
 
   const isLocked = status !== "DRAFT" && status !== "REWORK_REQUIRED";
 
-  // Load and validate local draft on mount
   useEffect(() => {
-    if (!storageKey || isLocked) return;
+    if (!validation.success) {
+      console.log("Goal Sheet Validation Failed:", validation.error.format());
+    }
+  }, [goals, validation]);
 
-    const raw = localStorage.getItem(storageKey);
-    if (!raw) return;
-
-    try {
-      const envelope = JSON.parse(raw);
-      
-      // 1. Expiration check (24 hour TTL)
-      const TTL = 24 * 60 * 60 * 1000;
-      if (Date.now() - envelope.savedAt > TTL) {
-        localStorage.removeItem(storageKey);
-        return;
-      }
-
-      // 2. Strict Zod Validation of goals array
-      const validationResult = goalSheetSchema.safeParse({ goals: envelope.goals });
-      if (!validationResult.success) {
-        localStorage.removeItem(storageKey);
-        return;
-      }
-
-      // 3. Deep equivalence check to make sure it actually differs meaningfully from initial DB goals
-      const initialStr = JSON.stringify(initialGoals);
-      const draftStr = JSON.stringify(envelope.goals);
-
-      if (initialStr !== draftStr) {
-        setLocalDraft(envelope.goals);
-        setDraftSavedAt(envelope.savedAt);
-        setShowRestoreBanner(true);
-      }
-    } catch {
-      // Graceful corruption handling
+  // Clear any existing localStorage drafts on mount to disable the recovery banner
+  useEffect(() => {
+    if (storageKey) {
       localStorage.removeItem(storageKey);
     }
-  }, [storageKey, initialGoals, isLocked]);
+  }, [storageKey]);
 
   // Auto-save changes to localStorage
   useEffect(() => {
@@ -269,52 +250,7 @@ export function GoalSheetEditor({
         </div>
       </div>
 
-      {/* Draft Recovery Banner */}
-      {showRestoreBanner && localDraft && (
-        <div className="bg-zinc-950/80 border border-amber-500/20 rounded-xl p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-zinc-100 shadow-xl backdrop-blur-md">
-          <div className="flex gap-3.5 items-start">
-            <div className="size-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-              <RotateCcw className="w-4 h-4 text-amber-500 animate-spin-reverse" />
-            </div>
-            <div>
-              <p className="text-sm font-bold text-zinc-200">Unsaved Local Draft Recovered</p>
-              <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
-                A localized draft saved at {draftSavedAt ? new Date(draftSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "recently"} was found. 
-                It has different changes than your database state.
-              </p>
-            </div>
-          </div>
-          <div className="flex gap-2 w-full md:w-auto">
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-zinc-800 hover:bg-zinc-900 text-zinc-400 hover:text-white text-xs flex-1 md:flex-initial rounded-lg h-9"
-              onClick={() => {
-                if (storageKey) {
-                  localStorage.removeItem(storageKey);
-                }
-                setShowRestoreBanner(false);
-                setLocalDraft(null);
-                toast.info("Local draft discarded.");
-              }}
-            >
-              Discard
-            </Button>
-            <Button
-              size="sm"
-              className="bg-amber-600 hover:bg-amber-500 text-zinc-950 font-bold text-xs flex-1 md:flex-initial rounded-lg h-9 px-4 transition-all"
-              onClick={() => {
-                setGoals(localDraft);
-                setShowRestoreBanner(false);
-                setLocalDraft(null);
-                toast.success("Draft successfully restored!");
-              }}
-            >
-              Restore Draft
-            </Button>
-          </div>
-        </div>
-      )}
+
 
       {/* Locked Sheet Banner */}
       {isLocked && (
@@ -400,6 +336,21 @@ export function GoalSheetEditor({
         </div>
       </div>
 
+      {/* Manager Feedback for Rework */}
+      {status === "REWORK_REQUIRED" && managerComment && (
+        <div className="bg-rose-950/30 border border-rose-500/20 rounded-xl p-5 flex gap-4 text-zinc-350 shadow-md">
+          <div className="size-9 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center flex-shrink-0">
+            <AlertTriangle className="w-5 h-5 text-rose-450 animate-pulse" />
+          </div>
+          <div className="text-xs space-y-1.5 leading-relaxed flex-1">
+            <p className="font-bold text-rose-400 text-sm">Manager Feedback (Rework Required)</p>
+            <div className="bg-zinc-900/60 border border-zinc-850 p-3.5 rounded-lg text-zinc-300 text-sm italic font-medium leading-relaxed shadow-inner">
+              "{managerComment}"
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Validation Panel (Semi-Translucent Glass Layout) */}
       {!isLocked && !isValid && goals.length > 0 && (
         <div className="bg-zinc-950/80 border border-amber-500/20 rounded-xl p-5 flex gap-4 text-zinc-300 shadow-md backdrop-blur-md">
@@ -427,6 +378,18 @@ export function GoalSheetEditor({
                   Each performance indicator must have a minimum of <span className="font-semibold text-zinc-200">10%</span> weightage
                 </li>
               )}
+              {!validation.success && validation.error.issues.map((issue, idx) => {
+                // Skip the custom refined 100% weightage check, since we already show a custom readable message for it above
+                if (issue.code === "custom" && issue.message.includes("100%")) return null;
+                
+                const goalNum = typeof issue.path[1] === "number" ? `Goal ${issue.path[1] + 1} (${goals[issue.path[1]]?.title || "Indicator"}): ` : "";
+                return (
+                  <li key={idx} className="flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                    <span>{goalNum}{issue.message}</span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </div>

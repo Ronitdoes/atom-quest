@@ -15,6 +15,7 @@ import Loading from "@/app/loading";
 export default function EmployeeGoalsPage() {
   const [goals, setGoals] = useState<GoalFormData[]>([]);
   const [status, setStatus] = useState<string>("DRAFT");
+  const [managerComment, setManagerComment] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const router = useRouter();
@@ -31,6 +32,7 @@ export default function EmployeeGoalsPage() {
           if (data) {
             setGoals(data.goals || []);
             setStatus(data.status || "DRAFT");
+            setManagerComment(data.managerComment || null);
           }
         }
       } catch (error) {
@@ -133,6 +135,7 @@ export default function EmployeeGoalsPage() {
             <GoalSheetEditor 
               initialGoals={goals}
               status={status}
+              managerComment={managerComment}
               onSaveDraft={handleSaveDraft}
               onSubmit={handleSubmit}
               isLoading={isSaving}

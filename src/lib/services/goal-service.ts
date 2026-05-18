@@ -31,7 +31,7 @@ export class GoalService {
       throw new BadRequestError("Cannot modify an approved goal sheet.");
     }
 
-    await this.assertAssignedSharedGoals(userId, validated.goals.map((goal) => goal.sharedGoalId));
+    await this.assertAssignedSharedGoals(userId, validated.goals.map((goal) => goal.sharedGoalId || undefined));
 
     // 3. Database transaction
     const sheet = await db.$transaction(async (tx) => {
@@ -119,7 +119,7 @@ export class GoalService {
       throw new BadRequestError("Cannot modify an approved goal sheet.");
     }
 
-    await this.assertAssignedSharedGoals(userId, validated.goals.map((goal) => goal.sharedGoalId));
+    await this.assertAssignedSharedGoals(userId, validated.goals.map((goal) => goal.sharedGoalId || undefined));
 
     // 2. Database transaction
     const res = await db.$transaction(async (tx) => {

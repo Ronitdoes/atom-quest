@@ -21,6 +21,7 @@ import {
 import Link from "next/link";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 
 interface CheckInReviewFormProps {
   checkInData: {
@@ -47,8 +48,12 @@ export function CheckInReviewForm({
     checkInData.checkIn?.managerComment || ""
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isFinalized, setIsFinalized] = useState<boolean>(
+    checkInData.checkIn?.managerComment !== null && checkInData.checkIn?.managerComment !== undefined
+  );
 
   const { goals, achievements, checkIn } = checkInData;
+  const isReviewComplete = isFinalized || (checkIn?.managerComment !== null && checkIn?.managerComment !== undefined);
 
   // Map achievements for rapid lookup
   const getGoalAchievement = (goalId: string) => {
@@ -78,6 +83,14 @@ export function CheckInReviewForm({
       toast.error("Check-in record does not exist yet.");
       return;
     }
+    if (isReviewComplete) {
+      toast.error("This review has already been finalized.");
+      return;
+    }
+    if (!managerComment.trim()) {
+      toast.error("Please provide qualitative feedback comments before completing the review.");
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -98,6 +111,7 @@ export function CheckInReviewForm({
       }
 
       toast.success("Check-in review feedback saved successfully!");
+      setIsFinalized(true);
       router.refresh();
     } catch (error: any) {
       console.error(error);
@@ -108,15 +122,10 @@ export function CheckInReviewForm({
   };
 
   const getProgressColor = (percent: number) => {
-    if (percent >= 100) return "bg-emerald-500 text-emerald-500 dark:bg-emerald-500/20 dark:text-emerald-400";
-    if (percent >= 50) return "bg-amber-500 text-amber-500 dark:bg-amber-500/20 dark:text-amber-400";
-    return "bg-rose-500 text-rose-500 dark:bg-rose-500/20 dark:text-rose-400";
-  };
-
-  const getProgressBorderColor = (percent: number) => {
-    if (percent >= 100) return "border-emerald-200 dark:border-emerald-900/30";
-    if (percent >= 50) return "border-amber-200 dark:border-amber-900/30";
-    return "border-rose-200 dark:border-rose-900/30";
+    if (percent >= 100) return "bg-emerald-950/30 text-emerald-400 border-emerald-900/65";
+    if (percent >= 75) return "bg-blue-950/30 text-blue-400 border-blue-900/65";
+    if (percent >= 50) return "bg-amber-950/30 text-amber-400 border-amber-900/65";
+    return "bg-rose-950/30 text-rose-400 border-rose-900/65";
   };
 
   const getProgressBadgeLabel = (percent: number) => {
@@ -136,13 +145,13 @@ export function CheckInReviewForm({
       <div className="flex items-center justify-between">
         <Link
           href="/manager"
-          className="inline-flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
+          className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-zinc-400 hover:text-zinc-100 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
         >
-          <ArrowLeft className="w-4 h-4" />
+          <ArrowLeft className="w-3.5 h-3.5 text-zinc-500" />
           Back to Dashboard
         </Link>
-        <span className="text-xs text-neutral-400 dark:text-neutral-500">
-          Cycle: 2026 • Quarter {quarter} Review
+        <span className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-widest bg-zinc-900/60 border border-zinc-850 px-3.5 py-1.5 rounded-full">
+          Cycle: 2026 • Q{quarter} Performance Review
         </span>
       </div>
 
@@ -153,99 +162,128 @@ export function CheckInReviewForm({
         <div className="lg:col-span-4 space-y-6">
           
           {/* Subordinate info card */}
-          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5 shadow-sm space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-neutral-600 dark:text-neutral-300">
-                <User className="w-5 h-5" />
+          <div className="bg-zinc-950/40 border border-zinc-850 rounded-2xl p-5 shadow-xl relative overflow-hidden group transition-all duration-300 hover:border-zinc-800">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-zinc-500/5 rounded-full blur-2xl pointer-events-none group-hover:bg-zinc-500/10 transition-all duration-300" />
+            <div className="flex items-center gap-4 relative z-10">
+              <div className="w-12 h-12 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 shadow-inner group-hover:scale-105 transition-all duration-300">
+                <User className="w-6 h-6 text-blue-400" />
               </div>
-              <div>
-                <h3 className="font-bold text-neutral-900 dark:text-neutral-100 leading-snug">
+              <div className="space-y-0.5">
+                <span className="text-[9px] uppercase font-black tracking-widest text-zinc-500 block">Employee Profile</span>
+                <h3 className="font-black text-base text-zinc-100 leading-snug group-hover:text-white transition-colors">
                   {employeeName}
                 </h3>
-                <p className="text-xs text-neutral-500 flex items-center gap-1">
-                  <Mail className="w-3.5 h-3.5" />
+                <p className="text-xs text-zinc-400 flex items-center gap-1.5 font-medium">
+                  <Mail className="w-3.5 h-3.5 text-zinc-500" />
                   {employeeEmail}
                 </p>
               </div>
             </div>
 
-            <hr className="border-neutral-150 dark:border-neutral-850" />
+            <div className="border-t border-zinc-900 my-4" />
 
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-neutral-400">Quarter:</span>
-              <span className="font-semibold text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded">
-                Q{quarter} Review
-              </span>
-            </div>
+            <div className="space-y-3 relative z-10">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-400">Review Period:</span>
+                <Badge className="bg-zinc-900 text-zinc-300 border border-zinc-800 text-[10px] font-mono px-2.5 py-0.5 hover:bg-zinc-900">
+                  Q{quarter} Review
+                </Badge>
+              </div>
 
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-neutral-400">Submission Status:</span>
-              <span className={cn(
-                "px-2 py-0.5 rounded font-semibold",
-                checkInData.status === "SUBMITTED"
-                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400"
-                  : "bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400"
-              )}>
-                {checkInData.status === "SUBMITTED" ? "Submitted" : "Draft Saved"}
-              </span>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-400">Submission Status:</span>
+                <span className={cn(
+                  "px-3 py-1 rounded-full font-black text-[10px] tracking-wide border uppercase",
+                  checkInData.status === "SUBMITTED"
+                    ? "bg-emerald-950/30 text-emerald-400 border-emerald-900/65"
+                    : "bg-amber-950/30 text-amber-400 border-amber-900/65"
+                )}>
+                  {checkInData.status === "SUBMITTED" ? "Submitted" : "Draft Saved"}
+                </span>
+              </div>
             </div>
           </div>
 
           {/* Employee general notes */}
-          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5 shadow-sm space-y-3">
-            <h4 className="font-semibold text-sm text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-              <ClipboardList className="w-4 h-4 text-neutral-400" />
-              Employee's Q{quarter} Comments
+          <div className="bg-zinc-950/40 border border-zinc-850 rounded-2xl p-5 shadow-xl relative overflow-hidden group transition-all duration-300 hover:border-zinc-800">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-zinc-500/5 rounded-full blur-2xl pointer-events-none group-hover:bg-zinc-500/10 transition-all duration-300" />
+            <h4 className="font-black text-xs uppercase tracking-wider text-zinc-200 flex items-center gap-2 pb-3 border-b border-zinc-900 relative z-10">
+              <ClipboardList className="w-4 h-4 text-blue-400" />
+              Employee Q{quarter} Comments
             </h4>
-            <div className="bg-neutral-50 dark:bg-neutral-950 border border-neutral-150 dark:border-neutral-850/50 rounded-lg p-3 text-xs leading-relaxed text-neutral-600 dark:text-neutral-400 min-h-[80px]">
+            <div className="bg-zinc-900/60 border border-zinc-850 p-4 rounded-xl text-xs leading-relaxed text-zinc-300 italic font-medium min-h-[90px] shadow-inner mt-3 relative z-10">
               {checkIn?.notes ? (
-                <p className="whitespace-pre-line">{checkIn.notes}</p>
+                <p className="whitespace-pre-line not-italic leading-relaxed">{checkIn.notes}</p>
               ) : (
-                <span className="italic text-neutral-400">No overall comments submitted.</span>
+                <span className="text-zinc-500">No overall comments submitted by the employee.</span>
               )}
             </div>
           </div>
 
           {/* Manager feedback feedback form */}
-          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5 shadow-sm space-y-4">
-            <h4 className="font-semibold text-sm text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-neutral-400" />
+          <div className="bg-zinc-950/40 border border-zinc-850 rounded-2xl p-5 shadow-xl relative overflow-hidden group transition-all duration-300 hover:border-zinc-800">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-zinc-500/5 rounded-full blur-2xl pointer-events-none group-hover:bg-zinc-500/10 transition-all duration-300" />
+            <h4 className="font-black text-xs uppercase tracking-wider text-zinc-200 flex items-center gap-2 pb-3 border-b border-zinc-900 relative z-10">
+              <BookOpen className="w-4 h-4 text-indigo-400" />
               Manager's Qualitative Feedback
             </h4>
             
-            <p className="text-xs text-neutral-500">
+            <p className="text-xs text-zinc-400 leading-relaxed pt-3 relative z-10">
               Provide reviews on achievement progression and outline directives for next quarter.
             </p>
 
             <textarea
-              className="w-full h-32 text-xs p-3 rounded-lg bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 focus:border-neutral-400 focus:ring-1 focus:ring-neutral-400 outline-none text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 resize-none transition-all"
+              className="w-full h-36 text-sm p-4 rounded-xl bg-zinc-900/60 border border-zinc-800 focus:border-zinc-700 focus:ring-1 focus:ring-zinc-700 outline-none text-zinc-100 placeholder-zinc-500 resize-none transition-all shadow-inner relative z-10 mt-3.5 leading-relaxed disabled:opacity-75 disabled:cursor-not-allowed"
               placeholder="Provide comments, observations, or directives..."
               value={managerComment}
               onChange={(e) => setManagerComment(e.target.value)}
+              disabled={isReviewComplete}
             />
 
-            <button
-              onClick={handleSaveReview}
-              disabled={isSubmitting || !checkIn?.id}
-              className="w-full py-2.5 rounded-lg bg-neutral-900 hover:bg-neutral-850 dark:bg-neutral-50 dark:hover:bg-neutral-200 text-white dark:text-black font-semibold text-xs transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none active:scale-[0.98]"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Saving Feedback...
-                </>
-              ) : (
-                <>
-                  <Check className="w-4 h-4" />
-                  Complete Q{quarter} Review
-                </>
-              )}
-            </button>
-            {!checkIn?.id && (
-              <p className="text-[10px] text-rose-500 text-center">
-                Employee must save a check-in draft before you can add feedback.
-              </p>
+            {isReviewComplete && (
+              <div className="bg-emerald-950/20 border border-emerald-900/50 rounded-xl p-3.5 mt-3 relative z-10 flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-zinc-300 leading-relaxed">
+                  <span className="font-bold text-emerald-400">Review Complete:</span> This check-in has been finalized and cannot be modified. The feedback is now active on the employee's portal.
+                </p>
+              </div>
             )}
+
+            <div className="pt-2.5 relative z-10">
+              <button
+                onClick={handleSaveReview}
+                disabled={isSubmitting || !checkIn?.id || isReviewComplete}
+                className={cn(
+                  "w-full h-12 rounded-xl text-white font-bold text-xs transition-all duration-200 flex items-center justify-center gap-2 disabled:pointer-events-none active:scale-[0.98]",
+                  isReviewComplete
+                    ? "bg-zinc-900 border border-zinc-800 text-zinc-500 shadow-none cursor-not-allowed opacity-80"
+                    : "bg-blue-600 hover:bg-blue-500 shadow-[0_4px_20px_rgba(37,99,235,0.15)] hover:shadow-[0_4px_20px_rgba(37,99,235,0.3)] hover:scale-[1.01] disabled:opacity-50"
+                )}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    Saving Feedback...
+                  </>
+                ) : isReviewComplete ? (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-400" />
+                    Q{quarter} Review Finalized
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4 text-white" />
+                    Complete Q{quarter} Review
+                  </>
+                )}
+              </button>
+              {!checkIn?.id && (
+                <p className="text-[10px] text-rose-400 font-extrabold text-center mt-2.5 flex items-center justify-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  Employee must save a check-in draft before feedback can be saved.
+                </p>
+              )}
+            </div>
           </div>
 
         </div>
@@ -254,38 +292,41 @@ export function CheckInReviewForm({
         <div className="lg:col-span-8 space-y-6">
           
           {/* Progress Banner */}
-          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5 shadow-sm flex flex-col md:flex-row items-center md:justify-between gap-4">
-            <div className="space-y-1 text-center md:text-left">
-              <span className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+          <div className="bg-zinc-950/40 border border-zinc-850 rounded-2xl p-6 shadow-xl relative overflow-hidden group flex flex-col md:flex-row items-center md:justify-between gap-5 transition-all duration-300 hover:border-zinc-800">
+            <div className="absolute top-0 right-0 w-36 h-36 bg-zinc-500/5 rounded-full blur-3xl pointer-events-none group-hover:bg-zinc-500/10 transition-all duration-300" />
+            
+            <div className="space-y-2 text-center md:text-left relative z-10">
+              <span className="text-[9px] font-black text-zinc-500 tracking-widest uppercase block">
                 Aggregated Analytics
               </span>
-              <h3 className="font-bold text-lg text-neutral-900 dark:text-neutral-50 flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-neutral-400" />
+              <h3 className="font-black text-lg text-zinc-100 flex items-center gap-2.5">
+                <TrendingUp className="w-5.5 h-5.5 text-blue-400 animate-pulse" />
                 Sheet Weighted Progress
               </h3>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="flex flex-col items-end gap-1">
-                <span className="text-3xl font-extrabold text-neutral-950 dark:text-white">
+            
+            <div className="flex items-center gap-5 relative z-10">
+              <div className="flex flex-col items-end gap-0.5">
+                <span className="text-4xl font-black font-mono tracking-tight text-zinc-100">
                   {overallProgress}%
                 </span>
-                <span className="text-[10px] font-semibold text-neutral-400">
+                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
                   Target Completion Ratio
                 </span>
               </div>
-              <div className="w-12 h-12 rounded-full border-4 border-neutral-100 dark:border-neutral-800 flex items-center justify-center bg-neutral-50 dark:bg-neutral-950">
-                <Award className="w-5 h-5 text-neutral-400" />
+              <div className="w-14 h-14 rounded-xl border border-zinc-850 bg-zinc-900/60 flex items-center justify-center shadow-inner group-hover:scale-105 transition-all duration-300">
+                <Award className="w-6 h-6 text-amber-400" />
               </div>
             </div>
           </div>
 
           {/* Goal-by-goal list */}
-          <div className="space-y-4">
-            <h4 className="font-bold text-sm text-neutral-900 dark:text-neutral-100 px-1">
+          <div className="space-y-5">
+            <h4 className="font-black text-xs uppercase tracking-wider text-zinc-400 px-1">
               Subordinate Goals & Target Achievements ({goals.length})
             </h4>
 
-            {goals.map((goal) => {
+            {goals.map((goal, index) => {
               const ach = getGoalAchievement(goal.id);
               const progressObj = ProgressCalculator.calculate(
                 goal.uomType as UomType,
@@ -296,31 +337,35 @@ export function CheckInReviewForm({
               return (
                 <div
                   key={goal.id}
-                  className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5 shadow-sm space-y-4 hover:border-neutral-350 dark:hover:border-neutral-750 transition-all duration-200"
+                  className="bg-zinc-950/40 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-5 hover:border-zinc-800 transition-all duration-300 relative overflow-hidden group"
                 >
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-zinc-500/5 rounded-full blur-2xl pointer-events-none group-hover:bg-zinc-500/10 transition-all duration-300" />
+                  
                   {/* Goal Header */}
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div className="space-y-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-zinc-900 relative z-10">
+                    <div className="space-y-2">
                       <div className="flex items-center gap-2 flex-wrap">
-                        {goal.thrustArea && (
-                          <span className="px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border border-neutral-200 dark:border-neutral-700/50">
-                            {goal.thrustArea}
-                          </span>
-                        )}
-                        <span className="px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
-                          Weight: {goal.weightage}%
+                        <span className="text-[9px] font-mono font-bold bg-zinc-900 border border-zinc-850 px-2 py-0.5 rounded text-zinc-400">
+                          Goal #{index + 1}
                         </span>
+                        {goal.thrustArea && (
+                          <Badge className="bg-zinc-900 text-zinc-300 border border-zinc-800 text-[9px] uppercase tracking-wider font-extrabold px-2.5 py-0.5 hover:bg-zinc-900">
+                            {goal.thrustArea}
+                          </Badge>
+                        )}
+                        <Badge className="bg-blue-950/30 text-blue-400 border border-blue-900/65 text-[9px] font-mono px-2 py-0.5 hover:bg-blue-950/30">
+                          Weightage: {goal.weightage}%
+                        </Badge>
                       </div>
-                      <h5 className="font-bold text-sm text-neutral-900 dark:text-neutral-50 leading-tight">
+                      <h5 className="font-black text-base text-zinc-100 tracking-tight leading-snug">
                         {goal.title}
                       </h5>
                     </div>
 
                     <div className="flex flex-col sm:items-end gap-1">
                       <span className={cn(
-                        "text-xs px-2.5 py-0.5 rounded-full font-bold border",
-                        getProgressColor(progressObj.clamped),
-                        getProgressBorderColor(progressObj.clamped)
+                        "text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-wide border",
+                        getProgressColor(progressObj.clamped)
                       )}>
                         {progressObj.clamped}% ({getProgressBadgeLabel(progressObj.clamped)})
                       </span>
@@ -329,46 +374,46 @@ export function CheckInReviewForm({
 
                   {/* Goal Description */}
                   {goal.description && (
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed bg-neutral-50/50 dark:bg-neutral-950/20 p-2.5 rounded-lg border border-neutral-100 dark:border-neutral-800/40">
+                    <p className="text-xs text-zinc-400 leading-relaxed bg-zinc-900/40 border border-zinc-900 p-3.5 rounded-xl relative z-10">
                       {goal.description}
                     </p>
                   )}
 
                   {/* Quantitative metrics grid */}
-                  <div className="grid grid-cols-3 gap-4 bg-neutral-50 dark:bg-neutral-950/60 border border-neutral-150 dark:border-neutral-850/60 rounded-lg p-3 text-center">
+                  <div className="grid grid-cols-3 gap-4 bg-zinc-900/60 border border-zinc-850 rounded-xl p-4 text-center relative z-10 shadow-inner">
                     <div>
-                      <span className="block text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">
+                      <span className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest">
                         Target Value
                       </span>
-                      <span className="text-xs font-bold text-neutral-800 dark:text-neutral-200">
+                      <span className="text-lg font-black font-mono text-zinc-100 mt-1 block">
                         {goal.target}
                       </span>
                     </div>
                     <div>
-                      <span className="block text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">
+                      <span className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest">
                         Achievement
                       </span>
-                      <span className="text-xs font-bold text-neutral-950 dark:text-white">
+                      <span className="text-lg font-black font-mono text-zinc-100 mt-1 block">
                         {ach.value}
                       </span>
                     </div>
                     <div>
-                      <span className="block text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">
+                      <span className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest">
                         UOM Type
                       </span>
-                      <span className="text-[10px] font-bold text-neutral-700 dark:text-neutral-300 capitalize">
+                      <span className="text-[10px] font-black text-blue-400 uppercase tracking-wide mt-2 block">
                         {formatUOM(goal.uomType)}
                       </span>
                     </div>
                   </div>
 
                   {/* Clamped progress meter */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-[10px] font-semibold text-neutral-400">
+                  <div className="space-y-2 relative z-10">
+                    <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-zinc-400">
                       <span>Clamped Progress (0-100%)</span>
-                      <span>{progressObj.clamped}%</span>
+                      <span className="font-mono">{progressObj.clamped}%</span>
                     </div>
-                    <div className="w-full h-1.5 rounded-full bg-neutral-100 dark:bg-neutral-800 overflow-hidden">
+                    <div className="w-full h-2 rounded-full bg-zinc-900 border border-zinc-850 overflow-hidden shadow-inner">
                       <div
                         className={cn(
                           "h-full rounded-full transition-all duration-500",
@@ -382,22 +427,22 @@ export function CheckInReviewForm({
                       />
                     </div>
                     {progressObj.raw > progressObj.clamped && (
-                      <p className="text-[10px] font-medium text-emerald-500 flex items-center gap-1">
+                      <p className="text-[10px] font-extrabold text-emerald-400 flex items-center gap-1.5 animate-pulse mt-1">
                         ✨ Overachieved! Raw Progress is {progressObj.raw}%
                       </p>
                     )}
                   </div>
 
                   {/* Qualitative comments from employee */}
-                  <div className="space-y-1 pt-1">
-                    <span className="text-[10px] font-semibold text-neutral-400 block">
+                  <div className="space-y-2 pt-1 relative z-10">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 block">
                       Employee Goal Comment
                     </span>
-                    <div className="bg-neutral-50/50 dark:bg-neutral-950/20 border border-neutral-150 dark:border-neutral-850/50 rounded-lg p-2.5 text-xs text-neutral-600 dark:text-neutral-400 italic">
+                    <div className="bg-zinc-900/60 border border-zinc-850 rounded-xl p-3.5 text-xs text-zinc-300 italic font-medium leading-relaxed shadow-inner">
                       {ach.notes ? (
                         <span className="not-italic leading-relaxed">{ach.notes}</span>
                       ) : (
-                        <span>No comment provided.</span>
+                        <span className="text-zinc-500">No comment provided for this goal.</span>
                       )}
                     </div>
                   </div>

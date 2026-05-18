@@ -72,6 +72,18 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { cycleId, quarter, notes, achievements } = body;
 
+    const existingCheckIn = await db.checkIn.findFirst({
+      where: {
+        userId: session.user.id,
+        cycleId,
+        quarter: typeof quarter === "number" ? quarter : parseInt(quarter, 10)
+      }
+    });
+
+    if (existingCheckIn) {
+      return new NextResponse("This check-in has already been submitted and is locked.", { status: 400 });
+    }
+
     const result = await CheckInService.submitCheckIn(
       session.user.id,
       cycleId,

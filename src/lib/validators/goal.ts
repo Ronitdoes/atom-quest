@@ -4,7 +4,7 @@ import { UomType } from "@prisma/client";
 export const goalSchema = z.object({
   thrustArea: z.string().min(1, "Thrust area is required"),
   title: z.string().min(3, "Title must be at least 3 characters").max(100, "Title is too long"),
-  description: z.string().max(500, "Description is too long").optional().or(z.literal("")),
+  description: z.string().max(500, "Description is too long").optional().nullable().or(z.literal("")),
   uomType: z.nativeEnum(UomType, {
     message: "Please select a valid UoM type",
   }),
@@ -12,7 +12,7 @@ export const goalSchema = z.object({
   weightage: z.number()
     .min(10, "Weightage must be at least 10%")
     .max(100, "Weightage cannot exceed 100%"),
-  sharedGoalId: z.string().optional(),
+  sharedGoalId: z.string().optional().nullable(),
 });
 
 export type GoalFormData = z.infer<typeof goalSchema>;

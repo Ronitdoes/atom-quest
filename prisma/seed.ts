@@ -68,24 +68,15 @@ async function main() {
   console.log(`- Manager: manager@atomquest.com`);
   console.log(`- Employee: employee@atomquest.com (Reports to: ${manager.name})`);
 
-  // Create CycleWindows for 2024 and 2026 cycles
+  // Create CycleWindows for 2026 cycle
   console.log("Seeding cycle windows...");
   
-  // 2024 Cycle Windows (historical/active)
-  const windows2024 = [
-    { quarter: 1, startDate: new Date("2024-01-01T00:00:00Z"), endDate: new Date("2024-03-31T23:59:59Z"), status: "CLOSED" },
-    { quarter: 2, startDate: new Date("2024-04-01T00:00:00Z"), endDate: new Date("2024-06-30T23:59:59Z"), status: "CLOSED" },
-    { quarter: 3, startDate: new Date("2024-07-01T00:00:00Z"), endDate: new Date("2024-09-30T23:59:59Z"), status: "CLOSED" },
-    { quarter: 4, startDate: new Date("2024-10-01T00:00:00Z"), endDate: new Date("2024-12-31T23:59:59Z"), status: "CLOSED" },
-  ];
-
-  for (const w of windows2024) {
-    await prisma.cycleWindow.upsert({
-      where: { cycleId_quarter: { cycleId: "2024", quarter: w.quarter } },
-      update: { startDate: w.startDate, endDate: w.endDate, status: w.status },
-      create: { cycleId: "2024", quarter: w.quarter, startDate: w.startDate, endDate: w.endDate, status: w.status },
-    });
-  }
+  // Clean up any cycle windows that are not for the 2026 cycle
+  await prisma.cycleWindow.deleteMany({
+    where: {
+      cycleId: { not: "2026" }
+    }
+  });
 
   // 2026 Cycle Windows (forward-looking & upcoming)
   const windows2026 = [

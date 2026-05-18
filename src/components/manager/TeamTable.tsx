@@ -67,7 +67,9 @@ export function TeamTable({ members }: TeamTableProps) {
                     href={`/manager/approvals?userId=${member.id}&cycleId=2026`}
                     className={cn(
                       buttonVariants({ variant: "ghost", size: "sm" }),
-                      "text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800",
+                      member.status === "SUBMITTED"
+                        ? "text-red-600 hover:text-red-700 hover:bg-red-50/80 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950/40 font-semibold"
+                        : "text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800",
                       !member.goalSheetId && "pointer-events-none opacity-50"
                     )}
                   >

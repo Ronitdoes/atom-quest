@@ -141,7 +141,7 @@ export function EmployeeTabsClient({
       const res = await fetch("/api/employee/audit-logs");
       if (res.ok) {
         const data = await res.json();
-        setHistoryLogs(data);
+        setHistoryLogs(data.data || []);
       } else {
         toast.error("Failed to fetch history logs.");
       }
@@ -471,46 +471,51 @@ export function EmployeeTabsClient({
               <Loader2 className="w-8 h-8 animate-spin text-zinc-400" />
               <p className="text-sm text-zinc-400">Loading your history...</p>
             </div>
-          ) : historyLogs.length === 0 ? (
+          ) : !Array.isArray(historyLogs) || historyLogs.length === 0 ? (
             <div className="text-center py-12 text-zinc-400 space-y-2">
               <History className="w-8 h-8 mx-auto opacity-40 text-zinc-500" />
               <p className="text-sm font-semibold text-zinc-300">No history events found</p>
               <p className="text-xs text-zinc-500">Your actions will be recorded here once you save drafts or submit goals.</p>
             </div>
           ) : (
-            <div className="relative max-h-[60vh] overflow-y-auto pr-2 space-y-6 pl-4 border-l border-zinc-800 ml-3 py-2 scrollbar-thin scrollbar-thumb-zinc-800">
-              {historyLogs.map((log) => {
-                const config = getLogConfig(log.action);
-                const Icon = config.icon;
-                return (
-                  <div key={log.id} className="relative pl-6 group">
-                    {/* Timeline Dot Indicator */}
-                    <div className={cn(
-                      "absolute -left-[31px] top-1.5 flex items-center justify-center w-7 h-7 rounded-full bg-zinc-950 border shadow-md transition-all duration-300 group-hover:scale-110",
-                      config.borderColor
-                    )}>
-                      <Icon className={cn("w-3.5 h-3.5", config.color)} />
-                    </div>
-                    
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between gap-4">
-                        <h4 className="text-sm font-bold text-zinc-150 group-hover:text-white transition-colors">
-                          {config.title}
-                        </h4>
-                        <span className="text-[10px] text-zinc-500 font-semibold tracking-wider whitespace-nowrap uppercase">
-                          {new Date(log.timestamp).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+            <div className="relative max-h-[60vh] overflow-y-auto pr-2 pl-12 py-2 scrollbar-thin scrollbar-thumb-zinc-800">
+              {/* Timeline Line */}
+              <div className="absolute left-6 top-0 bottom-0 w-px bg-zinc-800" />
+              
+              <div className="space-y-6 relative">
+                {Array.isArray(historyLogs) && historyLogs.map((log) => {
+                  const config = getLogConfig(log.action);
+                  const Icon = config.icon;
+                  return (
+                    <div key={log.id} className="relative pl-6 group">
+                      {/* Timeline Dot Indicator */}
+                      <div className={cn(
+                        "absolute -left-[38px] top-1.5 flex items-center justify-center w-7 h-7 rounded-full bg-zinc-950 border shadow-md transition-all duration-300 group-hover:scale-110",
+                        config.borderColor
+                      )}>
+                        <Icon className={cn("w-3.5 h-3.5", config.color)} />
+                      </div>
+                      
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-4">
+                          <h4 className="text-sm font-bold text-zinc-150 group-hover:text-white transition-colors">
+                            {config.title}
+                          </h4>
+                          <span className="text-[10px] text-zinc-550 font-semibold tracking-wider whitespace-nowrap uppercase">
+                            {new Date(log.timestamp).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </span>
+                        </div>
+                        <p className="text-xs text-zinc-400 leading-relaxed">
+                          {config.getDescription(log)}
+                        </p>
+                        <span className="inline-block text-[9px] text-zinc-500 font-mono">
+                          {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
-                      <p className="text-xs text-zinc-400 leading-relaxed">
-                        {config.getDescription(log)}
-                      </p>
-                      <span className="inline-block text-[9px] text-zinc-500 font-mono">
-                        {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           )}
         </DialogContent>

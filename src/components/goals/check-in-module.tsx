@@ -18,7 +18,9 @@ import {
   Sparkles, 
   CheckCircle2, 
   Save, 
-  Hourglass
+  Hourglass,
+  ArrowRight,
+  TrendingUp
 } from "lucide-react";
 import {
   Select,
@@ -40,7 +42,7 @@ interface Goal {
 }
 
 interface AchievementState {
-  value: number;
+  value: number | string;
   status: string;
   notes: string;
 }
@@ -52,10 +54,11 @@ export function CheckInModule() {
   const [checkInNotes, setCheckInNotes] = useState<string>("");
   const [managerComment, setManagerComment] = useState<string>("");
   const [status, setStatus] = useState<string>("LOADING");
-  const [reason, setReason] = useState<string>("");
+  const [reason, setReason] = useState<string>("Loading check-in workspace...");
   const [sheetStatus, setSheetStatus] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [hasSubmitted, setHasSubmitted] = useState<boolean>(false);
 
   const cycleId = "2026";
 
@@ -77,7 +80,7 @@ export function CheckInModule() {
           data.goals.forEach((g: Goal) => {
             const matched = data.achievements?.find((a: any) => a.goalId === g.id);
             loadedAchievements[g.id] = {
-              value: matched ? matched.value : 0,
+              value: matched && matched.value !== null && matched.value !== undefined ? matched.value : "",
               status: matched ? matched.status : "Not Started",
               notes: matched ? (matched.notes || "") : "",
             };
@@ -85,6 +88,7 @@ export function CheckInModule() {
           setAchievements(loadedAchievements);
           setCheckInNotes(data.checkIn?.notes || "");
           setManagerComment(data.checkIn?.managerComment || "");
+          setHasSubmitted(!!data.checkIn);
         } else {
           throw new Error("Failed to load details");
         }
@@ -110,13 +114,21 @@ export function CheckInModule() {
   };
 
   const handleSubmitCheckIn = async () => {
+    if (hasSubmitted) {
+      toast.error("This check-in has already been submitted and locked.");
+      return;
+    }
     setIsSaving(true);
     try {
       // Validate inputs locally first
       const formattedAchievements = Object.entries(achievements).map(([goalId, state]) => {
+        const goal = goals.find(g => g.id === goalId);
         const parsedVal = parseFloat(state.value as any);
         if (isNaN(parsedVal)) {
           throw new Error("All goal achievements must have numeric values.");
+        }
+        if (goal && parsedVal > goal.target) {
+          throw new Error(`Actual value for goal "${goal.title}" cannot exceed the numeric max target of ${goal.target}.`);
         }
         return {
           goalId,
@@ -139,6 +151,7 @@ export function CheckInModule() {
 
       if (response.ok) {
         toast.success(`Q${quarter} performance check-in submitted successfully!`);
+        setHasSubmitted(true);
       } else {
         const errorData = await response.json();
         throw new Error(errorData.message || "Failed to submit check-in.");
@@ -151,24 +164,37 @@ export function CheckInModule() {
     }
   };
 
-  // Helper to color-code status options
+  // Helper to color-code status options inside Select triggers dynamically
   const getStatusColor = (val: string) => {
     switch (val) {
       case "Completed":
-        return "text-emerald-500 bg-emerald-500/10 border-emerald-500/20";
+        return "text-emerald-400 bg-emerald-950/45 border-emerald-900/60 shadow-[0_2px_10px_rgba(16,185,129,0.05)]";
       case "On Track":
-        return "text-amber-500 bg-amber-500/10 border-amber-500/20";
+        return "text-amber-450 bg-amber-950/45 border-amber-900/60 shadow-[0_2px_10px_rgba(245,158,11,0.05)]";
       case "Not Started":
       default:
-        return "text-neutral-500 bg-neutral-500/10 border-neutral-500/20";
+        return "text-zinc-400 bg-zinc-900/60 border-zinc-800";
     }
   };
 
+  const hasValidationErrors = goals.some((goal) => {
+    const state = achievements[goal.id];
+    if (!state) return false;
+    const parsedVal = parseFloat(state.value as any);
+    return !isNaN(parsedVal) && parsedVal > goal.target;
+  });
+
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center h-[50vh] space-y-4">
-        <Loader2 className="w-10 h-10 animate-spin text-neutral-400" />
-        <p className="text-sm text-neutral-400">Loading check-in workspace...</p>
+      <div className="flex flex-col items-center justify-center h-[45vh] space-y-4 animate-in fade-in-50 duration-300">
+        <div className="relative flex items-center justify-center">
+          <div className="h-12 w-12 rounded-full border-2 border-zinc-800 border-t-blue-500 animate-spin" />
+          <Target className="w-5 h-5 text-blue-500 absolute animate-pulse" />
+        </div>
+        <div className="space-y-1 text-center">
+          <p className="text-sm font-bold text-zinc-200">Loading Workspace</p>
+          <p className="text-xs text-zinc-500">Retrieving quarterly key performance indicators...</p>
+        </div>
       </div>
     );
   }
@@ -176,36 +202,44 @@ export function CheckInModule() {
   // Handle Locked/Awaiting Approval Empty State
   if (status === "LOCKED") {
     return (
-      <Card className="border border-dashed border-neutral-200 dark:border-neutral-800 bg-white/50 dark:bg-neutral-900/50 backdrop-blur-sm max-w-2xl mx-auto mt-8">
-        <CardContent className="flex flex-col items-center justify-center p-12 text-center space-y-6">
-          <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center">
-            <AlertCircle className="w-8 h-8 text-amber-500" />
-          </div>
-          <div className="space-y-2">
-            <CardTitle className="text-xl font-bold">Check-ins Currently Locked</CardTitle>
-            <CardDescription className="text-neutral-500 dark:text-neutral-400 max-w-md">
-              {reason || "Your performance goals must be approved before you can start check-ins."}
-            </CardDescription>
-          </div>
-          <Badge variant="outline" className="text-xs uppercase px-3 py-1 font-mono font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
-            Goal Status: {sheetStatus || "NOT STARTED"}
-          </Badge>
-        </CardContent>
-      </Card>
+      <div className="animate-in fade-in-50 slide-in-from-bottom-4 duration-300">
+        <Card className="border border-zinc-850 bg-zinc-950/40 shadow-xl max-w-2xl mx-auto mt-8 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-2xl pointer-events-none" />
+          <CardContent className="flex flex-col items-center justify-center p-12 text-center space-y-6">
+            <div className="size-16 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform duration-300">
+              <AlertCircle className="w-8 h-8 text-amber-500 animate-pulse" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-black tracking-tight text-zinc-100 bg-gradient-to-r from-white to-zinc-450 bg-clip-text text-transparent">
+                Check-ins Temporarily Locked
+              </h3>
+              <p className="text-xs text-zinc-450 max-w-md leading-relaxed">
+                {reason || "Your performance goals must be fully approved by your manager before quarterly check-ins can be initiated."}
+              </p>
+            </div>
+            <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest px-3.5 py-1.5 font-mono border-zinc-800 bg-zinc-900/60 text-zinc-300 backdrop-blur-md">
+              Goal Sheet Status: {sheetStatus || "NOT STARTED"}
+            </Badge>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header Info */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-neutral-100 dark:border-neutral-800 pb-6">
+    <div className="space-y-8 animate-in fade-in-50 duration-300">
+      {/* Header Info & Selector */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-zinc-900 pb-6">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50">Quarterly Check-In Workspace</h2>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Provide actual progress metrics, performance statuses, and qualitative details for cycle {cycleId}.
+          <h2 className="text-2xl font-black tracking-tight text-zinc-100 bg-gradient-to-r from-white via-zinc-100 to-zinc-400 bg-clip-text text-transparent">
+            Quarterly Check-In Workspace
+          </h2>
+          <p className="text-xs text-zinc-450 mt-1 leading-relaxed">
+            Record actual metrics, document outcomes, and align check-in status for cycle {cycleId}.
           </p>
         </div>
-        <div className="flex items-center gap-2 bg-neutral-100 dark:bg-neutral-900 p-1.5 rounded-xl border border-neutral-200 dark:border-neutral-800">
+        
+        <div className="flex items-center gap-2 bg-zinc-950/40 border border-zinc-850 p-1.5 rounded-xl backdrop-blur-md">
           {[1, 2, 3, 4].map((q) => (
             <Button
               key={q}
@@ -213,10 +247,10 @@ export function CheckInModule() {
               size="sm"
               onClick={() => setQuarter(q)}
               className={cn(
-                "rounded-lg px-4 h-9 font-bold text-xs uppercase tracking-wider transition-all duration-200",
+                "rounded-lg px-4 h-9 font-black text-xs uppercase tracking-wider transition-all duration-200",
                 quarter === q 
-                  ? "bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-950 shadow-md"
-                  : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"
+                  ? "bg-blue-600 hover:bg-blue-500 text-white shadow-[0_2px_10px_rgba(37,99,235,0.2)]"
+                  : "text-zinc-400 hover:text-white hover:bg-zinc-900/60"
               )}
             >
               Q{q}
@@ -227,147 +261,183 @@ export function CheckInModule() {
 
       {/* Manager Feedback Banner (if reviewed) */}
       {managerComment && (
-        <Card className="border border-indigo-200 dark:border-indigo-950/40 bg-indigo-50/30 dark:bg-indigo-950/10 backdrop-blur-sm shadow-sm overflow-hidden">
-          <CardContent className="p-5 flex gap-3">
-            <div className="shrink-0 mt-0.5 w-8 h-8 rounded-lg bg-indigo-150 dark:bg-indigo-950/40 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-              <Sparkles className="w-4 h-4 text-indigo-500" />
+        <div className="bg-indigo-950/30 border border-indigo-500/20 rounded-xl p-5 flex gap-4 text-zinc-350 shadow-md animate-in fade-in-50 duration-300">
+          <div className="size-9 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center flex-shrink-0">
+            <Sparkles className="w-5 h-5 text-indigo-400" />
+          </div>
+          <div className="text-xs space-y-1.5 leading-relaxed flex-1">
+            <p className="font-bold text-indigo-400 text-sm">Manager Feedback (Review Complete)</p>
+            <div className="bg-zinc-900/60 border border-zinc-850 p-3.5 rounded-lg text-zinc-300 text-sm italic font-medium leading-relaxed shadow-inner">
+              "{managerComment}"
             </div>
-            <div className="space-y-1">
-              <h4 className="text-xs font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider">
-                Manager's Feedback & Review
-              </h4>
-              <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed italic">
-                "{managerComment}"
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
- 
+  
       {/* Goal Check-in Form */}
       <div className="grid gap-6">
-        {goals.map((goal) => {
+        {goals.map((goal, index) => {
           const state = achievements[goal.id] || { value: 0, status: "Not Started", notes: "" };
           
           return (
-            <Card key={goal.id} className="overflow-hidden border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm hover:shadow-md transition-shadow duration-200">
-              <CardHeader className="bg-neutral-50/50 dark:bg-neutral-900/50 border-b border-neutral-100 dark:border-neutral-800 p-6">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="space-y-1 max-w-[70%]">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="bg-neutral-200/50 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 font-semibold text-[10px] uppercase">
-                        {goal.thrustArea}
-                      </Badge>
-                      <Badge variant="outline" className="font-mono text-[10px]">
-                        Weightage: {goal.weightage}%
-                      </Badge>
-                    </div>
-                    <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mt-1">{goal.title}</h3>
-                    {goal.description && (
-                      <p className="text-xs text-neutral-500 dark:text-neutral-400">{goal.description}</p>
-                    )}
+            <div 
+              key={goal.id} 
+              className="bg-zinc-950/40 border border-zinc-850 rounded-xl p-6 shadow-md transition-all duration-300 hover:border-zinc-800 relative overflow-hidden group space-y-6"
+            >
+              {/* Subtle background glow on group hover */}
+              <div className="absolute top-0 right-0 w-32 h-32 bg-zinc-500/5 rounded-full blur-2xl pointer-events-none group-hover:bg-zinc-500/10 transition-all duration-300" />
+              
+              {/* Header Panel */}
+              <div className="flex flex-col md:flex-row justify-between items-start gap-4 pb-5 border-b border-zinc-900 relative z-10">
+                <div className="space-y-2 max-w-[80%]">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[9px] font-mono font-bold bg-zinc-900 border border-zinc-850 px-2 py-0.5 rounded text-zinc-400">
+                      Goal #{index + 1}
+                    </span>
+                    <Badge className="bg-zinc-900 text-zinc-300 border border-zinc-800 text-[9px] uppercase tracking-wider font-extrabold px-2.5 py-0.5 hover:bg-zinc-900">
+                      {goal.thrustArea}
+                    </Badge>
+                    <Badge className="bg-blue-950/30 text-blue-400 border border-blue-900/65 text-[9px] font-mono px-2 py-0.5 hover:bg-blue-950/30">
+                      Weightage: {goal.weightage}%
+                    </Badge>
                   </div>
-                  
-                  {/* Goal Targets */}
-                  <div className="text-right shrink-0">
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-neutral-400 dark:text-neutral-500">Target Metric</span>
-                    <div className="text-lg font-extrabold text-neutral-900 dark:text-neutral-50 font-mono mt-0.5">
-                      {goal.target} <span className="text-xs font-normal text-neutral-500 dark:text-neutral-400 uppercase">{goal.uomType.replace(/_/g, " ")}</span>
-                    </div>
+                  <h3 className="text-lg font-black text-zinc-100 tracking-tight mt-1.5 leading-snug">
+                    {goal.title}
+                  </h3>
+                  {goal.description && (
+                    <p className="text-xs text-zinc-450 font-medium leading-relaxed">
+                      {goal.description}
+                    </p>
+                  )}
+                </div>
+                
+                {/* Goal Targets */}
+                <div className="md:text-right shrink-0">
+                  <span className="text-[10px] uppercase font-black tracking-widest text-zinc-550 block">Target Metric</span>
+                  <div className="text-xl font-black text-zinc-100 font-mono mt-1">
+                    {goal.target} <span className="text-xs font-bold text-zinc-450 uppercase font-sans tracking-wide ml-1">{goal.uomType.replace(/_/g, " ")}</span>
                   </div>
                 </div>
-              </CardHeader>
+              </div>
               
-              <CardContent className="p-6 grid gap-6 md:grid-cols-12">
+              {/* Inputs Panel */}
+              <div className="grid gap-6 md:grid-cols-12 relative z-10">
                 {/* Achievement Input */}
                 <div className="space-y-2 md:col-span-3">
-                  <Label htmlFor={`val-${goal.id}`} className="text-xs font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
+                  <Label htmlFor={`val-${goal.id}`} className="text-xs font-bold uppercase tracking-widest text-zinc-450">
                     Q{quarter} Actual Value
                   </Label>
                   <Input
                     id={`val-${goal.id}`}
                     type="number"
                     step="0.01"
-                    className="font-mono dark:bg-neutral-950"
-                    placeholder="0.00"
+                    className="font-mono bg-zinc-900/60 border-zinc-800 text-zinc-100 focus:border-zinc-700 focus:ring-1 focus:ring-zinc-700 rounded-xl h-11 px-4 text-sm transition-all shadow-inner disabled:opacity-75 disabled:cursor-not-allowed"
                     value={state.value}
                     onChange={(e) => handleAchievementChange(goal.id, "value", e.target.value)}
+                    disabled={hasSubmitted}
                   />
+                  {state.value !== "" && Number(state.value) > goal.target && (
+                    <span className="text-[10px] text-rose-400 font-extrabold block mt-1 animate-in fade-in-50 duration-200">
+                      Exceeds target max of {goal.target}
+                    </span>
+                  )}
                 </div>
 
                 {/* Progress Status */}
                 <div className="space-y-2 md:col-span-3">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
+                  <Label className="text-xs font-bold uppercase tracking-widest text-zinc-450">
                     Status
                   </Label>
                   <Select
                     value={state.status}
                     onValueChange={(val) => handleAchievementChange(goal.id, "status", val)}
+                    disabled={hasSubmitted}
                   >
-                    <SelectTrigger className={cn("font-medium dark:bg-neutral-950", getStatusColor(state.status))}>
+                    <SelectTrigger className={cn("font-black h-11 rounded-xl transition-all border", getStatusColor(state.status))}>
                       <SelectValue placeholder="Select Status" />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Not Started" className="text-neutral-500">Not Started</SelectItem>
-                      <SelectItem value="On Track" className="text-amber-500">On Track</SelectItem>
-                      <SelectItem value="Completed" className="text-emerald-500">Completed</SelectItem>
+                    <SelectContent className="bg-zinc-950 border-zinc-800 text-zinc-200">
+                      <SelectItem value="Not Started" className="text-zinc-400 focus:bg-zinc-900 focus:text-white">Not Started</SelectItem>
+                      <SelectItem value="On Track" className="text-amber-400 focus:bg-zinc-900 focus:text-white">On Track</SelectItem>
+                      <SelectItem value="Completed" className="text-emerald-400 focus:bg-zinc-900 focus:text-white">Completed</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
                 {/* Achievement Notes */}
                 <div className="space-y-2 md:col-span-6">
-                  <Label htmlFor={`notes-${goal.id}`} className="text-xs font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 flex items-center gap-1">
-                    <MessageSquare className="w-3.5 h-3.5" />
+                  <Label htmlFor={`notes-${goal.id}`} className="text-xs font-bold uppercase tracking-widest text-zinc-450 flex items-center gap-1.5">
+                    <MessageSquare className="w-3.5 h-3.5 text-zinc-500" />
                     Check-In Comments / Notes
                   </Label>
                   <Textarea
                     id={`notes-${goal.id}`}
                     placeholder="Describe specific key achievements, metrics, or blockages..."
-                    className="min-h-[80px] text-sm dark:bg-neutral-950"
+                    className="min-h-[90px] text-sm bg-zinc-900/60 border-zinc-800 text-zinc-100 focus:border-zinc-700 focus:ring-1 focus:ring-zinc-700 rounded-xl p-3.5 leading-relaxed transition-all shadow-inner disabled:opacity-75 disabled:cursor-not-allowed"
                     value={state.notes}
                     onChange={(e) => handleAchievementChange(goal.id, "notes", e.target.value)}
+                    disabled={hasSubmitted}
                   />
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           );
         })}
       </div>
 
       {/* Overall Quarter Notes Card */}
-      <Card className="border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm mt-6">
-        <CardContent className="p-6 space-y-4">
-          <div className="flex items-center gap-2 border-b border-neutral-100 dark:border-neutral-800 pb-3">
-            <Sparkles className="w-5 h-5 text-neutral-500" />
-            <h3 className="text-md font-bold text-neutral-900 dark:text-neutral-100">Overall Q{quarter} Review Summary</h3>
+      <div className="bg-zinc-950/40 border border-zinc-850 rounded-xl p-6 shadow-md transition-all duration-300 relative overflow-hidden group">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-zinc-500/5 rounded-full blur-2xl pointer-events-none" />
+        
+        <div className="space-y-5">
+          <div className="flex items-center gap-2.5 border-b border-zinc-900 pb-4">
+            <Sparkles className="w-5 h-5 text-blue-400 animate-pulse" />
+            <h3 className="text-sm font-black uppercase tracking-wider text-zinc-200">Overall Q{quarter} Review Summary</h3>
           </div>
+          
           <div className="space-y-2">
-            <Label htmlFor="overall-notes" className="text-xs font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
-              Provide an overall quarterly summary for your manager
+            <Label htmlFor="overall-notes" className="text-xs font-bold uppercase tracking-widest text-zinc-450">
+              Provide an overall quarterly performance summary for your manager
             </Label>
             <Textarea
               id="overall-notes"
               placeholder="Highlight general performance achievements, obstacles, development points, or overall feedback..."
-              className="min-h-[120px] dark:bg-neutral-950"
+              className="min-h-[120px] bg-zinc-900/60 border-zinc-800 text-zinc-100 focus:border-zinc-700 focus:ring-1 focus:ring-zinc-700 rounded-xl p-4 leading-relaxed transition-all shadow-inner text-sm disabled:opacity-75 disabled:cursor-not-allowed"
               value={checkInNotes}
               onChange={(e) => setCheckInNotes(e.target.value)}
+              disabled={hasSubmitted}
             />
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      {/* Actions */}
+      {/* Actions Panel */}
       <div className="flex justify-end pt-4 gap-3">
+        {hasSubmitted && (
+          <div className="flex items-center gap-2 text-emerald-400 bg-emerald-950/20 border border-emerald-900/40 px-4 py-2.5 rounded-xl text-xs font-bold mr-auto">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>Q{quarter} Performance Check-In Submitted & Locked</span>
+          </div>
+        )}
         <Button
           onClick={handleSubmitCheckIn}
-          disabled={isSaving}
-          className="bg-neutral-800 hover:bg-neutral-700 text-white dark:bg-neutral-200 dark:hover:bg-neutral-100 dark:text-neutral-950 font-bold px-8 h-12 text-sm shadow-md flex items-center gap-2"
+          disabled={isSaving || hasValidationErrors || hasSubmitted}
+          className={cn(
+            "rounded-xl font-bold h-12 px-8 flex items-center justify-center gap-2 transition-all duration-200",
+            hasSubmitted
+              ? "bg-zinc-900 border border-zinc-850 text-zinc-500 cursor-not-allowed shadow-none hover:scale-100 active:scale-100 opacity-80"
+              : "bg-blue-600 hover:bg-blue-500 text-white shadow-[0_4px_20px_rgba(37,99,235,0.15)] hover:shadow-[0_4px_20px_rgba(37,99,235,0.3)] hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:shadow-none"
+          )}
         >
           {isSaving ? (
             <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Submitting...
+              <Loader2 className="w-4 h-4 animate-spin text-white" />
+              Submitting Check-In...
+            </>
+          ) : hasSubmitted ? (
+            <>
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              Check-In Submitted
             </>
           ) : (
             <>

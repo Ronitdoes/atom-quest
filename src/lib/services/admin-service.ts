@@ -727,7 +727,8 @@ export class AdminService {
   /**
    * Fetches goal-level achievements for the active cycle and selected quarter to generate a system-wide report
    */
-  static async getAchievementReport(cycleId: string = "2026", quarter: number = 1) {
+  static async getAchievementReport(cycleId: string = "2026", quarter: number | "all" = 1) {
+    const isAll = quarter === "all";
     const goals = await db.goal.findMany({
       where: {
         goalSheet: {
@@ -746,7 +747,7 @@ export class AdminService {
             },
           },
         },
-        achievements: {
+        achievements: isAll ? true : {
           where: {
             quarter: quarter,
           },
@@ -754,8 +755,43 @@ export class AdminService {
       },
     });
 
-    return goals
-      .map((goal) => {
+    const reportRows: any[] = [];
+
+    for (const goal of goals) {
+      if (isAll) {
+        for (let q = 1; q <= 4; q++) {
+          const achievement = goal.achievements.find(a => a.quarter === q) || null;
+          const achievementValue = achievement ? achievement.value : 0;
+          const achievementStatus = achievement ? achievement.status : "Not Started";
+          const notes = achievement ? achievement.notes : "";
+
+          const progress = ProgressCalculator.calculate(
+            goal.uomType,
+            goal.target,
+            achievementValue
+          );
+
+          reportRows.push({
+            id: `${goal.id}-q${q}`,
+            goalId: goal.id,
+            quarter: q,
+            employeeName: goal.goalSheet.user.name || "Unnamed Employee",
+            employeeEmail: goal.goalSheet.user.email,
+            thrustArea: goal.thrustArea,
+            title: goal.title,
+            description: goal.description,
+            uomType: goal.uomType,
+            target: goal.target,
+            weightage: goal.weightage,
+            achievementValue,
+            achievementStatus,
+            achievementNotes: notes,
+            progressClamped: progress.clamped,
+            progressRaw: progress.raw,
+            goalSheetStatus: goal.goalSheet.status,
+          });
+        }
+      } else {
         const achievement = goal.achievements[0] || null;
         const achievementValue = achievement ? achievement.value : 0;
         const achievementStatus = achievement ? achievement.status : "Not Started";
@@ -767,8 +803,10 @@ export class AdminService {
           achievementValue
         );
 
-        return {
+        reportRows.push({
           id: goal.id,
+          goalId: goal.id,
+          quarter: quarter as number,
           employeeName: goal.goalSheet.user.name || "Unnamed Employee",
           employeeEmail: goal.goalSheet.user.email,
           thrustArea: goal.thrustArea,
@@ -783,16 +821,23 @@ export class AdminService {
           progressClamped: progress.clamped,
           progressRaw: progress.raw,
           goalSheetStatus: goal.goalSheet.status,
-        };
-      })
-      .sort((a, b) => {
-        const nameCompare = a.employeeName.localeCompare(b.employeeName);
-        if (nameCompare !== 0) return nameCompare;
+        });
+      }
+    }
 
-        const thrustCompare = a.thrustArea.localeCompare(b.thrustArea);
-        if (thrustCompare !== 0) return thrustCompare;
+    return reportRows.sort((a, b) => {
+      const nameCompare = a.employeeName.localeCompare(b.employeeName);
+      if (nameCompare !== 0) return nameCompare;
 
-        return a.title.localeCompare(b.title);
-      });
+      if (isAll) {
+        const qCompare = a.quarter - b.quarter;
+        if (qCompare !== 0) return qCompare;
+      }
+
+      const thrustCompare = a.thrustArea.localeCompare(b.thrustArea);
+      if (thrustCompare !== 0) return thrustCompare;
+
+      return a.title.localeCompare(b.title);
+    });
   }
 }

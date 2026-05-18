@@ -17,13 +17,17 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const cycleId = searchParams.get("cycleId") || "2026";
     const quarterParam = searchParams.get("quarter") || "1";
-    const quarter = parseInt(quarterParam, 10);
+    let report;
 
-    if (isNaN(quarter) || quarter < 1 || quarter > 4) {
-      return NextResponse.json({ message: "Invalid quarter parameter" }, { status: 400 });
+    if (quarterParam === "all") {
+      report = await AdminService.getAchievementReport(cycleId, "all");
+    } else {
+      const quarter = parseInt(quarterParam, 10);
+      if (isNaN(quarter) || quarter < 1 || quarter > 4) {
+        return NextResponse.json({ message: "Invalid quarter parameter" }, { status: 400 });
+      }
+      report = await AdminService.getAchievementReport(cycleId, quarter);
     }
-
-    const report = await AdminService.getAchievementReport(cycleId, quarter);
     return NextResponse.json(report);
   } catch (error) {
     console.error("Error generating achievement report:", error);

@@ -79,15 +79,21 @@ export const authOptions: NextAuthOptions = {
           token.role = currentUser.role;
           token.name = currentUser.name;
           token.roleLastChecked = Date.now();
+        } else {
+          // User was deleted from the database! Clear token ID to invalidate the session
+          token.id = "";
         }
       }
       return token;
     },
     async session({ session, token }) {
-      if (token) {
+      if (token && token.id) {
         session.user.id = token.id;
         session.user.role = token.role;
         session.user.name = token.name;
+      } else {
+        // Invalidate session if user does not exist in the DB
+        return null as any;
       }
       return session;
     },

@@ -229,6 +229,10 @@ export class CheckInService {
 
     if (!checkIn) throw new NotFoundError("Check-in not found.");
 
+    if (checkIn.managerComment !== null && checkIn.managerComment !== undefined) {
+      throw new BadRequestError("This check-in review has already been finalized and locked.");
+    }
+
     // Check manager authorization
     if (checkIn.user.managerId !== managerId) {
       // Also allow if manager is an admin

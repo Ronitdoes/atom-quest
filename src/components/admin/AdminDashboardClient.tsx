@@ -49,7 +49,7 @@ import {
 import { DashboardCard } from "@/components/shared/dashboard-card";
 import { TableWrapper } from "@/components/shared/table-wrapper";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -419,9 +419,12 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
       return;
     }
 
+    const isAll = selectedReportQuarter === "all";
+
     const headers = [
       "Employee Name",
       "Employee Email",
+      ...(isAll ? ["Quarter"] : []),
       "Thrust Area",
       "Goal Title",
       "UoM Type",
@@ -436,6 +439,7 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
     const rows = reportData.map((row) => [
       `"${row.employeeName.replace(/"/g, '""')}"`,
       `"${row.employeeEmail.replace(/"/g, '""')}"`,
+      ...(isAll ? [`"Q${row.quarter}"`] : []),
       `"${row.thrustArea.replace(/"/g, '""')}"`,
       `"${row.title.replace(/"/g, '""')}"`,
       `"${row.uomType}"`,
@@ -460,7 +464,7 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
     const link = document.createElement("a");
     link.setAttribute("href", url);
     
-    const filename = `achievement_report_cycle_${selectedCycle}_q${selectedReportQuarter}.${format === "excel" ? "xls" : "csv"}`;
+    const filename = `achievement_report_cycle_${selectedCycle}_${isAll ? "all_quarters" : `q${selectedReportQuarter}`}.${format === "excel" ? "xls" : "csv"}`;
     link.setAttribute("download", filename);
     document.body.appendChild(link);
     link.click();
@@ -600,7 +604,12 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
       row.title.toLowerCase().includes(reportSearch.toLowerCase()) ||
       row.thrustArea.toLowerCase().includes(reportSearch.toLowerCase());
     return matchesSearch;
-  });  const isInitialLoading = loadingStats || loadingUsers || loadingLogs;
+  });
+
+  const isInitialLoading = 
+    (loadingStats && !stats) || 
+    (loadingUsers && users.length === 0) || 
+    (loadingLogs && auditLogs.length === 0);
 
   if (isInitialLoading) {
     return (
@@ -1046,7 +1055,7 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
                                 <CartesianGrid strokeDasharray="3 3" stroke="#262626" opacity={0.3} />
                                 <XAxis type="number" domain={[0, 100]} stroke="#737373" fontSize={11} fontWeight={600} />
                                 <YAxis dataKey="managerName" type="category" stroke="#737373" fontSize={10} width={100} tickFormatter={(t) => t.split(" ")[0]} />
-                                <Tooltip formatter={(value) => [`${value}%`, "Avg Progress"]} contentStyle={{ backgroundColor: "#171717", borderColor: "#262626", borderRadius: "10px", color: "#fff" }} />
+                                <Tooltip formatter={(value) => [`${value}%`, "Avg Progress"]} contentStyle={{ backgroundColor: "#171717", borderColor: "#262626", borderRadius: "10px", color: "#fff" }} cursor={false} />
                                 <Bar dataKey="averageProgress" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={16}>
                                   {barData.map((entry: any, index: number) => {
                                     const color = entry.averageProgress >= 75 ? "#10b981" : "#3b82f6";
@@ -1069,7 +1078,7 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
                         </CardTitle>
                         <CardDescription>Aggregate performance indexes grouped by organizational thrust areas.</CardDescription>
                       </CardHeader>
-                      <CardContent className="h-80 overflow-y-auto space-y-4 pr-1">
+                      <CardContent className="h-80 overflow-y-auto space-y-2.5 pr-2 scrollbar-thin scrollbar-thumb-neutral-200 dark:scrollbar-thumb-zinc-850 scrollbar-track-transparent scroll-smooth">
                         {(() => {
                           const thrustAreas: Record<string, { total: number; count: number }> = {};
                           const depts = analyticsData?.departmentPerformance || [];
@@ -1102,7 +1111,7 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
                             else if (ta.average < 50) trackColor = "bg-rose-500";
 
                             return (
-                              <div key={ta.name} className="space-y-1 bg-neutral-50 dark:bg-neutral-900/30 border border-neutral-100 dark:border-neutral-900/50 p-3 rounded-xl">
+                              <div key={ta.name} className="space-y-1.5 bg-neutral-50 dark:bg-neutral-900/30 border border-neutral-100 dark:border-neutral-900/50 p-2.5 rounded-xl hover:border-neutral-200 dark:hover:border-zinc-800 transition-all duration-200">
                                 <div className="flex justify-between items-center text-xs font-bold">
                                   <span className="text-neutral-400 capitalize">{ta.name}</span>
                                   <span className="text-neutral-900 dark:text-neutral-100 font-extrabold">{ta.average}%</span>
@@ -1152,13 +1161,13 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
                                 </div>
                                 <div className="flex flex-wrap gap-1.5">
                                   {Array.from({ length: reviewed }).map((_, i) => (
-                                    <div key={`rev-${i}`} className="h-4.5 w-4.5 rounded bg-emerald-500 hover:bg-emerald-400 transition-colors" title="Reviewed" />
+                                    <div key={`rev-${i}`} className="h-5 w-5 rounded bg-emerald-500 hover:bg-emerald-400 transition-colors" title="Reviewed" />
                                   ))}
                                   {Array.from({ length: pending }).map((_, i) => (
-                                    <div key={`pend-${i}`} className="h-4.5 w-4.5 rounded bg-amber-500 hover:bg-amber-400 transition-colors animate-pulse" title="Submitted, Pending Review" />
+                                    <div key={`pend-${i}`} className="h-5 w-5 rounded bg-amber-500 hover:bg-amber-400 transition-colors animate-pulse" title="Submitted, Pending Review" />
                                   ))}
                                   {Array.from({ length: Math.max(0, unsubmitted) }).map((_, i) => (
-                                    <div key={`unsub-${i}`} className="h-4.5 w-4.5 rounded bg-neutral-200 dark:bg-neutral-850 hover:bg-neutral-300 dark:hover:bg-neutral-800 transition-colors" title="Not Started" />
+                                    <div key={`unsub-${i}`} className="h-5 w-5 rounded bg-neutral-200 dark:bg-neutral-850 hover:bg-neutral-300 dark:hover:bg-neutral-800 transition-colors" title="Not Started" />
                                   ))}
                                 </div>
                               </div>
@@ -1166,6 +1175,20 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
                           });
                         })()}
                       </CardContent>
+                      <CardFooter className="flex flex-wrap items-center gap-3 pt-2 text-[10px] text-neutral-505 border-t border-neutral-100 dark:border-neutral-900 mt-2 px-6 pb-4">
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-2.5 w-2.5 rounded bg-emerald-500" />
+                          <span>Reviewed</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-2.5 w-2.5 rounded bg-amber-500 animate-pulse" />
+                          <span>Pending Review</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-2.5 w-2.5 rounded bg-neutral-200 dark:bg-neutral-850" />
+                          <span>Not Started</span>
+                        </div>
+                      </CardFooter>
                     </Card>
 
                     {/* Sortable Manager Leadership Leaderboard */}
@@ -1666,17 +1689,7 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
 
         {/* Tab 2: User Management */}
         <TabsContent value="users" className="space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
-              <Input
-                placeholder="Search users by name or email..."
-                value={userSearch}
-                onChange={(e) => handleUserSearchChange(e.target.value)}
-                className="pl-10 bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800"
-              />
-            </div>
-            
+          <div className="flex flex-col md:flex-row md:items-center justify-end gap-4">
             <div className="flex items-center gap-2">
               <Label className="text-xs font-bold text-neutral-400 uppercase shrink-0">Role Filter:</Label>
               <Select value={roleFilter} onValueChange={(val) => handleRoleFilterChange(val || "ALL")}>
@@ -1705,13 +1718,7 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loadingUsers ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="h-32 text-center text-neutral-500">
-                      Loading users list...
-                    </TableCell>
-                  </TableRow>
-                ) : filteredUsers.length === 0 ? (
+                {filteredUsers.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={5} className="h-32 text-center text-neutral-500">
                       No users match your filters.
@@ -1890,13 +1897,7 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loadingUsers ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="h-32 text-center text-neutral-500">
-                      Loading goal sheets...
-                    </TableCell>
-                  </TableRow>
-                ) : filteredSheets.length === 0 ? (
+                {filteredSheets.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={5} className="h-32 text-center text-neutral-500">
                       No goal sheets found.
@@ -2081,7 +2082,7 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
                   Quarter:
                 </Label>
                 <Select value={selectedReportQuarter} onValueChange={(val) => setSelectedReportQuarter(val || "1")}>
-                  <SelectTrigger id="report-quarter" className="w-[120px] bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800">
+                  <SelectTrigger id="report-quarter" className="w-[140px] bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800">
                     <SelectValue placeholder="Quarter 1" />
                   </SelectTrigger>
                   <SelectContent>
@@ -2089,6 +2090,7 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
                     <SelectItem value="2">Quarter 2</SelectItem>
                     <SelectItem value="3">Quarter 3</SelectItem>
                     <SelectItem value="4">Quarter 4</SelectItem>
+                    <SelectItem value="all">All Quarters</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -2117,11 +2119,17 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
             </div>
           </div>
 
-          <TableWrapper title={`Q${selectedReportQuarter} Goal Achievement Report`} description={`Detailed list of all employee goals, targets, quarterly achievements, and progress scores for cycle ${selectedCycle}.`}>
+          <TableWrapper 
+            title={selectedReportQuarter === "all" ? "All Quarters Goal Achievement Report" : `Q${selectedReportQuarter} Goal Achievement Report`} 
+            description={selectedReportQuarter === "all" ? `Detailed list of all employee goals, targets, quarterly achievements, and progress scores across all quarters for cycle ${selectedCycle}.` : `Detailed list of all employee goals, targets, quarterly achievements, and progress scores for cycle ${selectedCycle}.`}
+          >
             <Table>
               <TableHeader>
                 <TableRow className="bg-neutral-50/50 dark:bg-neutral-900/50">
                   <TableHead className="font-semibold text-neutral-900 dark:text-neutral-100">Employee</TableHead>
+                  {selectedReportQuarter === "all" && (
+                    <TableHead className="font-semibold text-neutral-900 dark:text-neutral-100 text-center">Quarter</TableHead>
+                  )}
                   <TableHead className="font-semibold text-neutral-900 dark:text-neutral-100">Goal Description</TableHead>
                   <TableHead className="font-semibold text-neutral-900 dark:text-neutral-100 text-center">Target vs Achievement</TableHead>
                   <TableHead className="font-semibold text-neutral-900 dark:text-neutral-100 text-center">Weight</TableHead>
@@ -2132,14 +2140,16 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
               <TableBody>
                 {loadingReport ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-32 text-center text-neutral-500">
+                    <TableCell colSpan={selectedReportQuarter === "all" ? 7 : 6} className="h-32 text-center text-neutral-500">
                       Compiling achievement report data...
                     </TableCell>
                   </TableRow>
                 ) : filteredReport.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-32 text-center text-neutral-500">
-                      No achievements recorded for Q{selectedReportQuarter} in cycle {selectedCycle}.
+                    <TableCell colSpan={selectedReportQuarter === "all" ? 7 : 6} className="h-32 text-center text-neutral-500">
+                      {selectedReportQuarter === "all" 
+                        ? `No achievements recorded for any quarter in cycle ${selectedCycle}.` 
+                        : `No achievements recorded for Q${selectedReportQuarter} in cycle ${selectedCycle}.`}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -2153,6 +2163,13 @@ export function AdminDashboardClient({ adminName, adminEmail }: AdminDashboardCl
                             <span className="text-xs text-neutral-500">{row.employeeEmail}</span>
                           </div>
                         </TableCell>
+                        {selectedReportQuarter === "all" && (
+                          <TableCell className="text-center">
+                            <Badge className="bg-neutral-100 dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 border-none font-bold text-[10px]">
+                              Q{row.quarter}
+                            </Badge>
+                          </TableCell>
+                        )}
                         <TableCell>
                           <div className="flex flex-col gap-1 max-w-sm">
                             <span className="font-semibold text-neutral-900 dark:text-neutral-100 leading-snug">{row.title}</span>

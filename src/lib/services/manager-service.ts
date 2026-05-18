@@ -385,7 +385,7 @@ export class ManagerService {
           const checkIn = checkInMap.get(q);
           if (!hasApprovedSheet) return { status: "LOCKED" as const };
           if (!checkIn) return { status: "NOT_STARTED" as const };
-          if (checkIn.managerComment) return { status: "REVIEWED" as const, checkInId: checkIn.id };
+          if (checkIn.managerComment !== null && checkIn.managerComment !== undefined) return { status: "REVIEWED" as const, checkInId: checkIn.id };
           return { status: "PENDING_REVIEW" as const, checkInId: checkIn.id };
         })
       };
