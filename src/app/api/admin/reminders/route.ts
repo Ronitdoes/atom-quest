@@ -13,8 +13,15 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await assertRateLimit(`admin:reminders:${session.user.id}`, 10, 60);
-    const { type, cycleId, quarter, preview } = await req.json();
+    const body = await req.json();
+    const { type, cycleId, quarter, preview } = body;
+
+    // Separate rate limits for preview (loads data on dashboard) vs actual broadcast (sends notifications)
+    if (preview) {
+      await assertRateLimit(`admin:reminders:preview:${session.user.id}`, 60, 60);
+    } else {
+      await assertRateLimit(`admin:reminders:broadcast:${session.user.id}`, 10, 60);
+    }
 
     if (!type || !cycleId) {
       return NextResponse.json({ message: "type and cycleId are required" }, { status: 400 });
