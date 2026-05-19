@@ -50,9 +50,9 @@ export class GoalService {
         },
       });
 
-      // Delete old goals and create new ones (simple approach for MVP)
+      // Delete old individual goals and create new ones
       await tx.goal.deleteMany({
-        where: { goalSheetId: sheet.id },
+        where: { goalSheetId: sheet.id, sharedGoalId: null },
       });
 
       await tx.goal.createMany({
@@ -64,9 +64,37 @@ export class GoalService {
           uomType: goal.uomType,
           target: goal.target,
           weightage: goal.weightage,
-          sharedGoalId: goal.sharedGoalId,
+          sharedGoalId: goal.sharedGoalId, // Expected to be null from UI
         })),
       });
+
+      // Auto-sync assigned Shared Goals
+      const assignedSharedGoals = await tx.sharedGoalAssignment.findMany({
+        where: { userId },
+        include: { sharedGoal: true }
+      });
+      
+      const existingSharedGoals = await tx.goal.findMany({
+        where: { goalSheetId: sheet.id, sharedGoalId: { not: null } }
+      });
+      const existingSharedGoalIds = new Set(existingSharedGoals.map(g => g.sharedGoalId));
+
+      const missingSharedGoals = assignedSharedGoals.filter(a => !existingSharedGoalIds.has(a.sharedGoalId));
+
+      if (missingSharedGoals.length > 0) {
+        await tx.goal.createMany({
+          data: missingSharedGoals.map(a => ({
+            goalSheetId: sheet.id,
+            thrustArea: a.sharedGoal.thrustArea,
+            title: a.sharedGoal.title,
+            description: a.sharedGoal.description,
+            uomType: a.sharedGoal.uomType,
+            target: a.sharedGoal.target,
+            weightage: 0,
+            sharedGoalId: a.sharedGoal.id,
+          }))
+        });
+      }
 
       // Log the action
       await tx.auditLog.create({
@@ -137,8 +165,9 @@ export class GoalService {
         },
       });
 
+      // Delete old individual goals
       await tx.goal.deleteMany({
-        where: { goalSheetId: sheet.id },
+        where: { goalSheetId: sheet.id, sharedGoalId: null },
       });
 
       await tx.goal.createMany({
@@ -150,9 +179,37 @@ export class GoalService {
           uomType: goal.uomType,
           target: goal.target,
           weightage: goal.weightage,
-          sharedGoalId: goal.sharedGoalId,
+          sharedGoalId: goal.sharedGoalId, // Expected to be null
         })),
       });
+
+      // Auto-sync assigned Shared Goals
+      const assignedSharedGoals = await tx.sharedGoalAssignment.findMany({
+        where: { userId },
+        include: { sharedGoal: true }
+      });
+      
+      const existingSharedGoals = await tx.goal.findMany({
+        where: { goalSheetId: sheet.id, sharedGoalId: { not: null } }
+      });
+      const existingSharedGoalIds = new Set(existingSharedGoals.map(g => g.sharedGoalId));
+
+      const missingSharedGoals = assignedSharedGoals.filter(a => !existingSharedGoalIds.has(a.sharedGoalId));
+
+      if (missingSharedGoals.length > 0) {
+        await tx.goal.createMany({
+          data: missingSharedGoals.map(a => ({
+            goalSheetId: sheet.id,
+            thrustArea: a.sharedGoal.thrustArea,
+            title: a.sharedGoal.title,
+            description: a.sharedGoal.description,
+            uomType: a.sharedGoal.uomType,
+            target: a.sharedGoal.target,
+            weightage: 0,
+            sharedGoalId: a.sharedGoal.id,
+          }))
+        });
+      }
 
       return sheet;
     });
@@ -219,7 +276,7 @@ export class GoalService {
           description: a.sharedGoal.description,
           uomType: a.sharedGoal.uomType,
           target: a.sharedGoal.target,
-          weightage: 10,
+          weightage: 0,
           sharedGoalId: a.sharedGoal.id,
           goalSheetId: "new",
         })),
@@ -240,7 +297,7 @@ export class GoalService {
         description: a.sharedGoal.description,
         uomType: a.sharedGoal.uomType,
         target: a.sharedGoal.target,
-        weightage: 10,
+        weightage: 0,
         sharedGoalId: a.sharedGoal.id,
         goalSheetId: sheet.id,
       }));

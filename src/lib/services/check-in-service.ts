@@ -50,17 +50,43 @@ export class CheckInService {
       },
     });
 
+    // Fetch assigned shared goals
+    const assignedSharedGoals = await db.sharedGoalAssignment.findMany({
+      where: { userId },
+      include: { sharedGoal: true },
+    });
+
+    // Merge assigned shared goals that aren't already in the sheet
+    let allGoals = [...sheet.goals];
+    const existingSharedGoalIds = new Set(sheet.goals.map(g => g.sharedGoalId).filter(Boolean));
+    const missingSharedGoals = assignedSharedGoals.filter(a => !existingSharedGoalIds.has(a.sharedGoalId));
+
+    if (missingSharedGoals.length > 0) {
+      const virtualGoals: any[] = missingSharedGoals.map(a => ({
+        id: `shared-${a.sharedGoal.id}`,
+        thrustArea: a.sharedGoal.thrustArea,
+        title: a.sharedGoal.title,
+        description: a.sharedGoal.description,
+        uomType: a.sharedGoal.uomType,
+        target: a.sharedGoal.target,
+        weightage: 0,
+        sharedGoalId: a.sharedGoal.id,
+        goalSheetId: sheet.id,
+      }));
+      allGoals = [...allGoals, ...virtualGoals];
+    }
+
     // 3. Fetch achievements for this quarter and user's goals
     const achievements = await db.goalAchievement.findMany({
       where: {
-        goalId: { in: sheet.goals.map((g) => g.id) },
+        goalId: { in: allGoals.map((g) => g.id) },
         quarter,
       },
     });
 
     return {
       status: "APPROVED",
-      goals: sheet.goals,
+      goals: allGoals,
       achievements,
       checkIn,
     };

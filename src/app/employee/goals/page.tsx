@@ -3,10 +3,11 @@
 import { useState, useEffect } from "react";
 import { GoalSheetEditor } from "@/components/goals/goal-sheet-editor";
 import { CheckInModule } from "@/components/goals/check-in-module";
+import { SharedKpiModule } from "@/components/goals/shared-kpi-module";
 import { GoalFormData } from "@/lib/validators/goal";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { Loader2, Target, ClipboardCheck, ArrowLeft } from "lucide-react";
+import { Loader2, Target, ClipboardCheck, ArrowLeft, Network } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Header } from "@/components/shared/header";
 import { Button } from "@/components/ui/button";
@@ -118,6 +119,10 @@ export default function EmployeeGoalsPage() {
                 <ClipboardCheck className="w-4 h-4" />
                 Quarterly Check-Ins
               </TabsTrigger>
+              <TabsTrigger value="shared-kpis" className="gap-2">
+                <Network className="w-4 h-4" />
+                Shared KPIs
+              </TabsTrigger>
             </TabsList>
             
             <Button
@@ -133,7 +138,7 @@ export default function EmployeeGoalsPage() {
 
           <TabsContent value="goal-setting" className="mt-0">
             <GoalSheetEditor 
-              initialGoals={goals}
+              initialGoals={goals.filter((g) => !g.sharedGoalId)}
               status={status}
               managerComment={managerComment}
               onSaveDraft={handleSaveDraft}
@@ -144,6 +149,10 @@ export default function EmployeeGoalsPage() {
 
           <TabsContent value="check-ins" className="mt-0">
             <CheckInModule />
+          </TabsContent>
+
+          <TabsContent value="shared-kpis" className="mt-0">
+            <SharedKpiModule />
           </TabsContent>
         </Tabs>
       </main>

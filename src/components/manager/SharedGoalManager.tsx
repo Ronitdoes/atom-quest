@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { SharedGoalForm } from "./SharedGoalForm";
 import { SharedGoalAssignmentDialog } from "./SharedGoalAssignmentDialog";
-import { SharedGoalSyncDialog } from "./SharedGoalSyncDialog";
+import { SharedGoalProgressDialog } from "./SharedGoalProgressDialog";
 import { SharedGoalFormData } from "@/lib/validators/shared-goal";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -39,7 +39,7 @@ export function SharedGoalManager({ teamMembers }: { teamMembers: TeamMember[] }
   const [sharedGoals, setSharedGoals] = useState<SharedGoal[]>([]);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isAssignOpen, setIsAssignOpen] = useState(false);
-  const [isSyncOpen, setIsSyncOpen] = useState(false);
+  const [isProgressOpen, setIsProgressOpen] = useState(false);
   const [selectedGoal, setSelectedGoal] = useState<SharedGoal | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -156,11 +156,11 @@ export function SharedGoalManager({ teamMembers }: { teamMembers: TeamMember[] }
                       className="gap-2"
                       onClick={() => {
                         setSelectedGoal(goal);
-                        setIsSyncOpen(true);
+                        setIsProgressOpen(true);
                       }}
                     >
                       <RefreshCw className="h-4 w-4" />
-                      Sync Progress
+                      View Progress
                     </Button>
                     <Button
                       variant="ghost"
@@ -205,10 +205,10 @@ export function SharedGoalManager({ teamMembers }: { teamMembers: TeamMember[] }
         onAssign={handleAssign}
       />
 
-      {/* Sync Dialog */}
-      <SharedGoalSyncDialog
-        isOpen={isSyncOpen}
-        onClose={() => setIsSyncOpen(false)}
+      {/* Progress Dialog */}
+      <SharedGoalProgressDialog
+        isOpen={isProgressOpen}
+        onClose={() => setIsProgressOpen(false)}
         sharedGoal={selectedGoal}
       />
     </Card>

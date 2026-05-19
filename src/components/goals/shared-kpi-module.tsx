@@ -47,18 +47,16 @@ interface AchievementState {
   notes: string;
 }
 
-export function CheckInModule() {
+export function SharedKpiModule() {
   const [quarter, setQuarter] = useState<number>(1);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [achievements, setAchievements] = useState<Record<string, AchievementState>>({});
-  const [checkInNotes, setCheckInNotes] = useState<string>("");
-  const [managerComment, setManagerComment] = useState<string>("");
   const [status, setStatus] = useState<string>("LOADING");
   const [reason, setReason] = useState<string>("Loading check-in workspace...");
   const [sheetStatus, setSheetStatus] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [hasSubmitted, setHasSubmitted] = useState<boolean>(false);
+  const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
 
   const cycleId = "2026";
 
@@ -73,12 +71,12 @@ export function CheckInModule() {
           setStatus(data.status);
           setReason(data.reason || "");
           setSheetStatus(data.sheetStatus || "");
-          const individualGoals = (data.goals || []).filter((g: any) => !g.sharedGoalId);
-          setGoals(individualGoals);
+          const sharedGoals = (data.goals || []).filter((g: any) => g.sharedGoalId);
+          setGoals(sharedGoals);
 
           // Initialize achievements inputs from saved values or defaults
           const loadedAchievements: Record<string, AchievementState> = {};
-          individualGoals.forEach((g: Goal) => {
+          sharedGoals.forEach((g: Goal) => {
             const matched = data.achievements?.find((a: any) => a.goalId === g.id);
             loadedAchievements[g.id] = {
               value: matched && matched.value !== null && matched.value !== undefined ? matched.value : "",
@@ -87,9 +85,8 @@ export function CheckInModule() {
             };
           });
           setAchievements(loadedAchievements);
-          setCheckInNotes(data.checkIn?.notes || "");
-          setManagerComment(data.checkIn?.managerComment || "");
-          setHasSubmitted(!!data.checkIn);
+          setIsSubmitted(data.achievements && data.achievements.length > 0);
+          // Shared KPIs do not use global checkInNotes or managerComment
         } else {
           throw new Error("Failed to load details");
         }
@@ -105,6 +102,7 @@ export function CheckInModule() {
   }, [quarter, cycleId]);
 
   const handleAchievementChange = (goalId: string, field: keyof AchievementState, value: any) => {
+    setIsSubmitted(false);
     setAchievements((prev) => ({
       ...prev,
       [goalId]: {
@@ -115,10 +113,6 @@ export function CheckInModule() {
   };
 
   const handleSubmitCheckIn = async () => {
-    if (hasSubmitted) {
-      toast.error("This check-in has already been submitted and locked.");
-      return;
-    }
     setIsSaving(true);
     try {
       // Validate inputs locally first
@@ -139,27 +133,26 @@ export function CheckInModule() {
         };
       });
 
-      const response = await fetch("/api/check-ins", {
+      const response = await fetch("/api/shared-kpis/progress", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cycleId,
           quarter,
-          notes: checkInNotes,
           achievements: formattedAchievements,
         }),
       });
 
       if (response.ok) {
-        toast.success(`Q${quarter} performance check-in submitted successfully!`);
-        setHasSubmitted(true);
+        toast.success(`Q${quarter} Shared KPI progress updated successfully!`);
+        setIsSubmitted(true);
       } else {
         const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to submit check-in.");
+        throw new Error(errorData.message || "Failed to update progress.");
       }
     } catch (error: any) {
-      console.error("Failed to save check-in:", error);
-      toast.error(error.message || "Error submitting quarterly check-in.");
+      console.error("Failed to save progress:", error);
+      toast.error(error.message || "Error updating Shared KPI progress.");
     } finally {
       setIsSaving(false);
     }
@@ -233,10 +226,10 @@ export function CheckInModule() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-zinc-900 pb-6">
         <div>
           <h2 className="text-2xl font-black tracking-tight text-zinc-100 bg-gradient-to-r from-white via-zinc-100 to-zinc-400 bg-clip-text text-transparent">
-            Quarterly Check-In Workspace
+            Shared KPI Progress
           </h2>
           <p className="text-xs text-zinc-450 mt-1 leading-relaxed">
-            Record actual metrics, document outcomes, and align check-in status for cycle {cycleId}.
+            Record actual metrics and document outcomes for your assigned Shared KPIs for cycle {cycleId}.
           </p>
         </div>
         
@@ -260,21 +253,7 @@ export function CheckInModule() {
         </div>
       </div>
 
-      {/* Manager Feedback Banner (if reviewed) */}
-      {managerComment && (
-        <div className="bg-indigo-950/30 border border-indigo-500/20 rounded-xl p-5 flex gap-4 text-zinc-350 shadow-md animate-in fade-in-50 duration-300">
-          <div className="size-9 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center flex-shrink-0">
-            <Sparkles className="w-5 h-5 text-indigo-400" />
-          </div>
-          <div className="text-xs space-y-1.5 leading-relaxed flex-1">
-            <p className="font-bold text-indigo-400 text-sm">Manager Feedback (Review Complete)</p>
-            <div className="bg-zinc-900/60 border border-zinc-850 p-3.5 rounded-lg text-zinc-300 text-sm italic font-medium leading-relaxed shadow-inner">
-              "{managerComment}"
-            </div>
-          </div>
-        </div>
-      )}
-  
+
       {/* Goal Check-in Form */}
       <div className="grid gap-6">
         {goals.map((goal, index) => {
@@ -292,14 +271,8 @@ export function CheckInModule() {
               <div className="flex flex-col md:flex-row justify-between items-start gap-4 pb-5 border-b border-zinc-900 relative z-10">
                 <div className="space-y-2 max-w-[80%]">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[9px] font-mono font-bold bg-zinc-900 border border-zinc-850 px-2 py-0.5 rounded text-zinc-400">
-                      Goal #{index + 1}
-                    </span>
                     <Badge className="bg-zinc-900 text-zinc-300 border border-zinc-800 text-[9px] uppercase tracking-wider font-extrabold px-2.5 py-0.5 hover:bg-zinc-900">
                       {goal.thrustArea}
-                    </Badge>
-                    <Badge className="bg-blue-950/30 text-blue-400 border border-blue-900/65 text-[9px] font-mono px-2 py-0.5 hover:bg-blue-950/30">
-                      Weightage: {goal.weightage}%
                     </Badge>
                   </div>
                   <h3 className="text-lg font-black text-zinc-100 tracking-tight mt-1.5 leading-snug">
@@ -335,7 +308,6 @@ export function CheckInModule() {
                     className="font-mono bg-zinc-900/60 border-zinc-800 text-zinc-100 focus:border-zinc-700 focus:ring-1 focus:ring-zinc-700 rounded-xl h-11 px-4 text-sm transition-all shadow-inner disabled:opacity-75 disabled:cursor-not-allowed"
                     value={state.value}
                     onChange={(e) => handleAchievementChange(goal.id, "value", e.target.value)}
-                    disabled={hasSubmitted}
                   />
                   {state.value !== "" && Number(state.value) > goal.target && (
                     <span className="text-[10px] text-rose-400 font-extrabold block mt-1 animate-in fade-in-50 duration-200">
@@ -352,7 +324,6 @@ export function CheckInModule() {
                   <Select
                     value={state.status}
                     onValueChange={(val) => handleAchievementChange(goal.id, "status", val)}
-                    disabled={hasSubmitted}
                   >
                     <SelectTrigger className={cn("font-black h-11 rounded-xl transition-all border", getStatusColor(state.status))}>
                       <SelectValue placeholder="Select Status" />
@@ -377,7 +348,6 @@ export function CheckInModule() {
                     className="min-h-[90px] text-sm bg-zinc-900/60 border-zinc-800 text-zinc-100 focus:border-zinc-700 focus:ring-1 focus:ring-zinc-700 rounded-xl p-3.5 leading-relaxed transition-all shadow-inner disabled:opacity-75 disabled:cursor-not-allowed"
                     value={state.notes}
                     onChange={(e) => handleAchievementChange(goal.id, "notes", e.target.value)}
-                    disabled={hasSubmitted}
                   />
                 </div>
               </div>
@@ -386,64 +356,33 @@ export function CheckInModule() {
         })}
       </div>
 
-      {/* Overall Quarter Notes Card */}
-      <div className="bg-zinc-950/40 border border-zinc-850 rounded-xl p-6 shadow-md transition-all duration-300 relative overflow-hidden group">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-zinc-500/5 rounded-full blur-2xl pointer-events-none" />
-        
-        <div className="space-y-5">
-          <div className="flex items-center gap-2.5 border-b border-zinc-900 pb-4">
-            <Sparkles className="w-5 h-5 text-blue-400 animate-pulse" />
-            <h3 className="text-sm font-black uppercase tracking-wider text-zinc-200">Overall Q{quarter} Review Summary</h3>
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="overall-notes" className="text-xs font-bold uppercase tracking-widest text-zinc-450">
-              Provide an overall quarterly performance summary for your manager
-            </Label>
-            <Textarea
-              id="overall-notes"
-              placeholder="Highlight general performance achievements, obstacles, development points, or overall feedback..."
-              className="min-h-[120px] bg-zinc-900/60 border-zinc-800 text-zinc-100 focus:border-zinc-700 focus:ring-1 focus:ring-zinc-700 rounded-xl p-4 leading-relaxed transition-all shadow-inner text-sm disabled:opacity-75 disabled:cursor-not-allowed"
-              value={checkInNotes}
-              onChange={(e) => setCheckInNotes(e.target.value)}
-              disabled={hasSubmitted}
-            />
-          </div>
-        </div>
-      </div>
 
       {/* Actions Panel */}
       <div className="flex justify-end pt-4 gap-3">
-        {hasSubmitted && (
-          <div className="flex items-center gap-2 text-emerald-400 bg-emerald-950/20 border border-emerald-900/40 px-4 py-2.5 rounded-xl text-xs font-bold mr-auto">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>Q{quarter} Performance Check-In Submitted & Locked</span>
-          </div>
-        )}
         <Button
           onClick={handleSubmitCheckIn}
-          disabled={isSaving || hasValidationErrors || hasSubmitted}
+          disabled={isSaving || hasValidationErrors}
           className={cn(
             "rounded-xl font-bold h-12 px-8 flex items-center justify-center gap-2 transition-all duration-200",
-            hasSubmitted
-              ? "bg-zinc-900 border border-zinc-850 text-zinc-500 cursor-not-allowed shadow-none hover:scale-100 active:scale-100 opacity-80"
+            isSubmitted && !isSaving
+              ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_4px_20px_rgba(16,185,129,0.15)] hover:shadow-[0_4px_20px_rgba(16,185,129,0.3)] hover:scale-[1.02] active:scale-[0.98]"
               : "bg-blue-600 hover:bg-blue-500 text-white shadow-[0_4px_20px_rgba(37,99,235,0.15)] hover:shadow-[0_4px_20px_rgba(37,99,235,0.3)] hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:shadow-none"
           )}
         >
           {isSaving ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin text-white" />
-              Submitting Check-In...
+              Updating Progress...
             </>
-          ) : hasSubmitted ? (
+          ) : isSubmitted ? (
             <>
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              Check-In Submitted
+              <CheckCircle2 className="w-4 h-4" />
+              Already Submitted
             </>
           ) : (
             <>
-              <ClipboardCheck className="w-4 h-4" />
-              Submit Q{quarter} Check-In
+              <Save className="w-4 h-4" />
+              Save Progress
             </>
           )}
         </Button>

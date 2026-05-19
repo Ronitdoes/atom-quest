@@ -52,7 +52,8 @@ export function CheckInReviewForm({
     checkInData.checkIn?.managerComment !== null && checkInData.checkIn?.managerComment !== undefined
   );
 
-  const { goals, achievements, checkIn } = checkInData;
+  const { goals: allGoals, achievements, checkIn } = checkInData;
+  const goals = allGoals.filter((g: any) => !g.sharedGoalId);
   const isReviewComplete = isFinalized || (checkIn?.managerComment !== null && checkIn?.managerComment !== undefined);
 
   // Map achievements for rapid lookup

@@ -44,7 +44,7 @@ interface ApprovalSheetProps {
 }
 
 export function ApprovalSheet({ sheet }: ApprovalSheetProps) {
-  const [goals, setGoals] = useState(sheet.goals);
+  const [goals, setGoals] = useState(sheet.goals.filter((g: any) => !g.sharedGoalId));
   const [comment, setComment] = useState(sheet.managerComment || "");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
