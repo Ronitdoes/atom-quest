@@ -12,20 +12,33 @@ const prisma = new PrismaClient({ adapter });
 async function main() {
   console.log("Starting seeding...");
 
-  const adminPassword = await bcrypt.hash("AdmQuest$2026!", 10);
-  const managerPassword = await bcrypt.hash("MgrQuest#2026!1", 10);
-  const employeePassword = await bcrypt.hash("EmpQuest@2026!", 10);
+  const adminEmail = process.env.SEED_ADMIN_EMAIL || "admin@atomquest.com";
+  const adminPasswordRaw = process.env.SEED_ADMIN_PASSWORD || "AdmQuest$2026!";
+  const adminName = process.env.SEED_ADMIN_NAME || "Demo Admin";
+
+  const managerEmail = process.env.SEED_MANAGER_EMAIL || "manager@atomquest.com";
+  const managerPasswordRaw = process.env.SEED_MANAGER_PASSWORD || "MgrQuest#2026!1";
+  const managerName = process.env.SEED_MANAGER_NAME || "Demo Manager";
+
+  const employeeEmail = process.env.SEED_EMPLOYEE_EMAIL || "employee@atomquest.com";
+  const employeePasswordRaw = process.env.SEED_EMPLOYEE_PASSWORD || "EmpQuest@2026!";
+  const employeeName = process.env.SEED_EMPLOYEE_NAME || "Demo Employee";
+
+  const adminPassword = await bcrypt.hash(adminPasswordRaw, 10);
+  const managerPassword = await bcrypt.hash(managerPasswordRaw, 10);
+  const employeePassword = await bcrypt.hash(employeePasswordRaw, 10);
 
   // Create Admin
   const admin = await prisma.user.upsert({
-    where: { email: "admin@atomquest.com" },
+    where: { email: adminEmail },
     update: {
+      name: adminName,
       password: adminPassword,
       role: "ADMIN",
     },
     create: {
-      email: "admin@atomquest.com",
-      name: "Demo Admin",
+      email: adminEmail,
+      name: adminName,
       password: adminPassword,
       role: "ADMIN",
     },
@@ -33,14 +46,15 @@ async function main() {
 
   // Create Manager
   const manager = await prisma.user.upsert({
-    where: { email: "manager@atomquest.com" },
+    where: { email: managerEmail },
     update: {
+      name: managerName,
       password: managerPassword,
       role: "MANAGER",
     },
     create: {
-      email: "manager@atomquest.com",
-      name: "Demo Manager",
+      email: managerEmail,
+      name: managerName,
       password: managerPassword,
       role: "MANAGER",
     },
@@ -48,15 +62,16 @@ async function main() {
 
   // Create Employee
   const employee = await prisma.user.upsert({
-    where: { email: "employee@atomquest.com" },
+    where: { email: employeeEmail },
     update: {
+      name: employeeName,
       password: employeePassword,
       role: "EMPLOYEE",
       managerId: manager.id,
     },
     create: {
-      email: "employee@atomquest.com",
-      name: "Demo Employee",
+      email: employeeEmail,
+      name: employeeName,
       password: employeePassword,
       role: "EMPLOYEE",
       managerId: manager.id,
@@ -64,9 +79,9 @@ async function main() {
   });
 
   console.log("Demo accounts created:");
-  console.log(`- Admin: admin@atomquest.com`);
-  console.log(`- Manager: manager@atomquest.com`);
-  console.log(`- Employee: employee@atomquest.com (Reports to: ${manager.name})`);
+  console.log(`- Admin: ${adminEmail}`);
+  console.log(`- Manager: ${managerEmail}`);
+  console.log(`- Employee: ${employeeEmail} (Reports to: ${manager.name})`);
 
   // Create CycleWindows for 2026 cycle
   console.log("Seeding cycle windows...");
